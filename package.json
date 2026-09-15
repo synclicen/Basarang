@@ -1,0 +1,13 @@
+{
+  "name": "basarang",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Basarang: Bagarak Saurang — AI Teleprompter yang mengikuti suara Anda. Sinkron lintas perangkat via Cloudflare D1.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-assets.mjs",
+    "test": "npm run build && node scripts/test-align.mjs && node scripts/test-local.mjs",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  }
+}

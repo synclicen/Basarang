@@ -1,0 +1,14 @@
+name = "basarang"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# D1 database binding — database_id diisi setelah `wrangler d1 create basarang`
+[[d1_databases]]
+binding = "DB"
+database_name = "basarang"
+database_id = "FILL_ME_AFTER_D1_CREATE"
+
+# Semua fitur berjalan di tier gratis Cloudflare:
+# - Workers Free: 100.000 request/hari (cukup untuk ribuan sesi)
+# - D1 Free: 5 GB penyimpanan, 5 juta row-read/hari, 100 ribu row-write/hari
+# - Tidak ada API eksternal berbayar (speech recognition pakai Web Speech API browser)
