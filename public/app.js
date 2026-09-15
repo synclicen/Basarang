@@ -220,10 +220,7 @@
       <div class="topbar-inner">
         <a class="brand" href="#/dashboard">
           <span class="brand-mark">B</span>
-          <span class="brand-txt">
-            <span class="brand-name"><em>Basarang</em></span>
-            <span class="brand-sub">Bagarak Saurang</span>
-          </span>
+          <span class="brand-name"><em>BASARANG</em><span class="brand-tail">: Bagarak Saurang</span></span>
         </a>
         <div class="topbar-actions">
           ${adminBtn}
@@ -358,9 +355,8 @@
       <div class="auth-card">
         <div class="auth-hero">
           <div class="mark">B</div>
-          <h1><em>Basarang: Bagarak Saurang</em></h1>
+          <h1><em>BASARANG</em>: Bagarak Saurang</h1>
           <p class="tag">Inisialisasi pertama — buat akun <b>Super Admin</b> untuk memulai.</p>
-          <p class="tag-en">The AI Teleprompter that scrolls as you speak</p>
           <div class="feature-row">
             <span class="pill pill-gold">Sinkron lintas perangkat</span>
             <span class="pill pill-purple">Gratis 100%</span>
@@ -428,7 +424,7 @@
       <div class="auth-card">
         <div class="auth-hero">
           <div class="mark">B</div>
-          <h1><em>Basarang</em>: Bagarak Saurang</h1>
+          <h1><em>BASARANG</em>: Bagarak Saurang</h1>
         </div>
         <form class="card" id="login-form" novalidate>
           <label class="field">
@@ -478,8 +474,7 @@
     <main class="page container">
       <div class="page-head">
         <div class="grow">
-          <h2 class="page-title">Assalamu'alaikum, <span class="gold">${esc(state.user.display_name)}</span></h2>
-          <p class="page-sub">Kelola proyek dan naskah presentasi Anda — tersinkron di semua perangkat.</p>
+          <h2 class="page-title">Proyek</h2>
         </div>
         <button class="btn btn-gold" id="btn-new-proj">${I.plus} Proyek Baru</button>
       </div>

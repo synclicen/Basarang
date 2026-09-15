@@ -247,7 +247,7 @@ label.field { display: block; margin-bottom: var(--sp-3); }
 }
 .brand-name { font-family: var(--font-brand); font-size: var(--fs-lg); font-weight: 700; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .brand-name em { font-style: normal; background: var(--grad-brand); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-.brand-sub { display: block; font-size: 9.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--silver-3); font-family: var(--font); }
+.brand-tail { font-weight: 600; }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
 .userchip { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .avatar {
@@ -357,7 +357,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
   box-shadow: var(--glow-gold), 0 0 44px rgba(232, 181, 77, 0.25);
   font-family: var(--font-brand); font-size: 34px; font-weight: 700; color: var(--gold-1);
 }
-.auth-hero h1 { margin: 0; font-family: var(--font-brand); font-size: clamp(22px, 4vw, 30px); line-height: 1.15; }
+.auth-hero h1 { margin: 0; font-family: var(--font-brand); font-size: clamp(19px, 5.5vw, 30px); line-height: 1.15; letter-spacing: 0.01em; }
 .auth-hero h1 em { font-style: normal; background: var(--grad-brand); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .auth-hero .tag { margin: 8px 0 0; color: var(--text-2); font-size: var(--fs-sm); }
 .auth-hero .tag-en { font-style: italic; color: var(--silver-3); font-size: var(--fs-xs); margin-top: 4px; }
@@ -634,8 +634,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 /* Sembunyikan label tombol di layar sempit — tetap compact */
 @media (max-width: 620px) {
   .hide-sm { display: none; }
-  .brand-sub { display: none; }
   .userchip .meta { display: none; }
+}
+
+/* Brand satu baris: ekor judul disembunyikan di layar sempit agar tidak terpotong */
+@media (max-width: 860px) {
+  .brand-tail { display: none; }
 }
 
 /* Status tombol aktif */
