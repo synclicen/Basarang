@@ -50,6 +50,9 @@
   --sp-5: 22px;
   --sp-6: 32px;
   --topbar-h: 54px;
+  /* Tinggi footer sticky — diukur ulang app.js (ResizeObserver) agar akurat
+     saat teks wrap di layar sempit; 40px hanya fallback awal. */
+  --footer-h: 40px;
   --fs-xs: clamp(11px, 0.6vw + 10px, 12px);
   --fs-sm: clamp(12px, 0.4vw + 11.5px, 13.5px);
   --fs-md: clamp(13.5px, 0.4vw + 13px, 15px);
@@ -83,7 +86,7 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-.app-root { flex: 1 0 auto; width: 100%; }
+.app-root { flex: 1 0 auto; width: 100%; padding-bottom: var(--footer-h); }
 ::selection { background: rgba(232, 181, 77, 0.35); }
 
 /* Scrollbar halus */
@@ -398,7 +401,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 
 /* ============ Toast ============ */
 
-.toast-root { position: fixed; bottom: max(14px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 28px)); pointer-events: none; }
+.toast-root { position: fixed; bottom: calc(var(--footer-h) + max(14px, env(safe-area-inset-bottom))); left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 28px)); pointer-events: none; }
 .toast {
   pointer-events: auto;
   padding: 10px 16px;
@@ -416,17 +419,27 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .toast.info { border-color: rgba(232, 181, 77, 0.5); color: #FBEFD3; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
-/* ============ Footer ============ */
+/* ============ Footer — TETAP TAMPIL DIMANAPUN ============
+   Fixed di dasar viewport dengan z-index 600 (di atas topbar 50, modal 100,
+   toast 200, bahkan overlay teleprompter 500) sehingga atribusi selalu
+   terlihat di semua halaman maupun saat prompter berjalan/rekam video.
+   Konten app, toast, HUD prompter, dan panelnya digeser ke atasnya
+   lewat var --footer-h (diukur app.js). */
 
 .site-footer {
   flex: none;
-  margin-top: var(--sp-5);
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 600;
   border-top: 1px solid var(--stroke);
-  background: rgba(14, 9, 26, 0.7);
-  padding: var(--sp-3) 0 calc(var(--sp-3) + env(safe-area-inset-bottom));
+  background: rgba(12, 8, 23, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 -8px 24px rgba(5, 2, 12, 0.45);
+  padding: 7px 0 calc(7px + env(safe-area-inset-bottom));
 }
 .footer-inner { width: var(--container); margin-inline: auto; text-align: center; }
-.footer-lines { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 10px; color: var(--silver-3); font-size: var(--fs-xs); letter-spacing: 0.03em; }
+.footer-lines { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 10px; color: var(--silver-2); font-size: var(--fs-xs); letter-spacing: 0.03em; }
 .footer-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--gold-3); }
 
 /* ============ Teleprompter (overlay fullscreen) ============ */
@@ -451,7 +464,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .p-content {
   max-width: min(92vw, 1100px);
   margin: 0 auto;
-  padding: 38dvh 18px 46dvh;
+  padding: 38dvh 18px calc(46dvh + var(--footer-h));
   font-weight: 600;
   line-height: 1.55;
   letter-spacing: 0.01em;
@@ -531,9 +544,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 .p-hud-top { top: 0; border-bottom: 1px solid rgba(199, 206, 219, 0.1); }
-.p-hud-bot { bottom: 0; border-top: 1px solid rgba(199, 206, 219, 0.1); justify-content: center; flex-wrap: wrap; }
+.p-hud-bot { bottom: var(--footer-h); border-top: 1px solid rgba(199, 206, 219, 0.1); justify-content: center; flex-wrap: wrap; }
 .p-hud-hidden .p-hud-top { opacity: 0; transform: translateY(-100%); pointer-events: none; }
-.p-hud-hidden .p-hud-bot { opacity: 0; transform: translateY(100%); pointer-events: none; }
+.p-hud-hidden .p-hud-bot { opacity: 0; transform: translateY(calc(-1 * var(--footer-h))); pointer-events: none; }
 
 .p-title { font-size: var(--fs-sm); font-weight: 700; color: var(--silver-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
 .p-status { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--silver-3); }
@@ -616,7 +629,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 
 /* Panel pengaturan prompter */
 .p-settings {
-  position: absolute; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  position: absolute; left: 50%; bottom: calc(64px + var(--footer-h)); transform: translateX(-50%);
   z-index: 8; width: min(480px, calc(100vw - 24px));
   max-height: 60dvh; overflow-y: auto;
   background: rgba(18, 12, 34, 0.97);
@@ -708,10 +721,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 
 /* Layar pendek (lanskap ponsel) */
 @media (max-height: 480px) {
-  .p-content { padding-top: 30dvh; padding-bottom: 30dvh; font-size: clamp(20px, 4.2vw, 34px); }
+  .p-content { padding-top: 30dvh; padding-bottom: calc(30dvh + var(--footer-h)); font-size: clamp(20px, 4.2vw, 34px); }
   .p-hud-bot { gap: 6px; }
   .p-play { min-width: 46px; height: 46px; }
-  .p-settings { bottom: 48px; }
+  .p-settings { bottom: calc(48px + var(--footer-h)); }
   .p-video-box { width: clamp(90px, 16vw, 150px); top: calc(52px + env(safe-area-inset-top)); }
 }
 

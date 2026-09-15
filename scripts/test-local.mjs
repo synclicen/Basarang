@@ -157,6 +157,20 @@ console.log('— Aset statis & kesehatan —');
   check('css tersaji', css.status === 200 && (css.text || '').includes('--gold-2'));
   const js = await req(null, 'GET', '/app.js');
   check('app.js tersaji', js.status === 200);
+  // Regresi footer selalu terlihat: fixed z-600 (di atas prompter z-500),
+  // semua lapisan bergeser via var --footer-h, tinggi diukur app.js.
+  check(
+    'footer fixed di atas semua lapisan',
+    (css.text || '').includes('z-index: 600') && (css.text || '').includes('position: fixed') && (css.text || '').includes('backdrop-filter: blur(12px)')
+  );
+  check(
+    'lapisan bergeser di atas footer (--footer-h)',
+    (css.text || '').includes('--footer-h') && (css.text || '').includes('.app-root { flex: 1 0 auto; width: 100%; padding-bottom: var(--footer-h); }') && (css.text || '').includes('.p-hud-bot { bottom: var(--footer-h);') && (css.text || '').includes('padding: 38dvh 18px calc(46dvh + var(--footer-h));')
+  );
+  check(
+    'tinggi footer diukur dinamis app.js',
+    ((await js.res.text()) || '').includes('syncFooterHeight')
+  );
   const al = await req(null, 'GET', '/align.js');
   check('align.js tersaji', al.status === 200);
   const pj = await req(null, 'GET', '/prompter.js');

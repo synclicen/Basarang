@@ -9,6 +9,29 @@
 
   const state = { user: null, needsSetup: false, booted: false };
 
+  // ---------- Footer selalu terlihat ----------
+
+  // Footer sticky (fixed, z-index 600) harus tidak menutupi konten app,
+  // toast, HUD prompter, maupun panel pengaturannya — semua bergeser
+  // sebesar var --footer-h. Tingginya diukur nyata (bisa wrap 2 baris di
+  // layar sempit) dan dipantau ResizeObserver agar selalu akurat.
+  const syncFooterHeight = () => {
+    const f = document.querySelector('.site-footer');
+    if (!f) return;
+    const h = Math.round(f.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty('--footer-h', h + 'px');
+  };
+  syncFooterHeight();
+  window.addEventListener('resize', syncFooterHeight);
+  window.addEventListener('orientationchange', syncFooterHeight);
+  const footerEl = document.querySelector('.site-footer');
+  if (footerEl && 'ResizeObserver' in window) {
+    new ResizeObserver(syncFooterHeight).observe(footerEl);
+  }
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(syncFooterHeight).catch(() => {});
+  }
+
   // ---------- Util ----------
 
   const esc = (s) =>
