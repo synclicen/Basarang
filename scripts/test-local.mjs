@@ -204,6 +204,12 @@ console.log('— Aset statis & kesehatan —');
       'confirmDialog: resolve dipanggil sebelum close (klik Ya benar-benar konfirmasi)',
       /resolve\(true\);\s*close\(\);/.test(a) && !/close\(\);\s*resolve\(true\);/.test(a)
     );
+    // Regresi UX: suggestion text (placeholder) dihapus dari semua kolom isian —
+    // label & hint permanen di bawah kolom sudah cukup; placeholder menambah ramai.
+    check(
+      'kolom isian bebas suggestion text (placeholder dihapus)',
+      !a.includes('placeholder=') && !(css.text || '').includes('::placeholder')
+    );
   }
   const al = await req(null, 'GET', '/align.js');
   check('align.js tersaji', al.status === 200);
@@ -291,6 +297,12 @@ console.log('— Aset statis & kesehatan —');
     check(
       'rata teks: setAlign satu pintu, siklus pintasan A, tersinkron',
       t.includes('function setAlign') && t.includes('function cycleAlign') && t.includes('function syncAlignButtons') && t.includes("case 'a':") && t.includes('elContent.style.textAlign') && (css.text || '').includes('#ps-align .txt { display: none; }')
+    );
+    // Regresi UX: panel pengaturan kini punya tombol Tutup eksplisit di header
+    // (sebelumnya hanya pintasan S / tombol gear HUD — kurang terlihat).
+    check(
+      'panel pengaturan: tombol Tutup (ps-close) di header panel',
+      t.includes('id="ps-close"') && t.includes('ICON.close') && t.includes("querySelector('#ps-close')") && (css.text || '').includes('.p-set-head')
     );
   }
   const fav = await req(null, 'GET', '/favicon.svg');

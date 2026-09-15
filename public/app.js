@@ -396,20 +396,20 @@
         <form class="card" id="setup-form" novalidate>
           <label class="field">
             <span class="label-txt">Nama tampilan</span>
-            <input class="input" name="display_name" placeholder="cth: Fajrianor" maxlength="60" autocomplete="name">
+            <input class="input" name="display_name" maxlength="60" autocomplete="name">
           </label>
           <label class="field">
             <span class="label-txt">Username</span>
-            <input class="input" name="username" placeholder="huruf kecil, 3-30 karakter" maxlength="30" autocomplete="username" required>
+            <input class="input" name="username" maxlength="30" autocomplete="username" required>
             <span class="hint">Huruf kecil, angka, titik, garis bawah, strip.</span>
           </label>
           <label class="field">
             <span class="label-txt">Email (opsional)</span>
-            <input class="input" name="email" type="email" placeholder="opsional" maxlength="120" autocomplete="email">
+            <input class="input" name="email" type="email" maxlength="120" autocomplete="email">
           </label>
           <label class="field">
             <span class="label-txt">Kata sandi</span>
-            <input class="input" name="password" type="password" placeholder="minimal 8 karakter" minlength="8" maxlength="128" autocomplete="new-password" required>
+            <input class="input" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
           </label>
           <div class="form-err" id="setup-err"></div>
           <button class="btn btn-gold btn-block btn-lg" type="submit">Buat Super Admin</button>
@@ -608,11 +608,11 @@
       <form id="proj-form" novalidate>
         <label class="field">
           <span class="label-txt">Nama proyek</span>
-          <input class="input" name="name" value="${esc(isEdit ? project.name : '')}" maxlength="120" placeholder="cth: Konten Media Sosial Ramadhan" required>
+          <input class="input" name="name" value="${esc(isEdit ? project.name : '')}" maxlength="120" required>
         </label>
         <label class="field">
           <span class="label-txt">Deskripsi</span>
-          <textarea class="textarea" name="description" maxlength="600" style="min-height:84px" placeholder="opsional">${esc(isEdit ? project.description : '')}</textarea>
+          <textarea class="textarea" name="description" maxlength="600" style="min-height:84px">${esc(isEdit ? project.description : '')}</textarea>
         </label>
         ${isEdit ? `
         <label class="field">
@@ -707,7 +707,7 @@
             <div class="member-list" id="member-list"></div>
             ${can_manage ? `
             <form class="row mt-3" id="member-add" style="gap:6px">
-              <input class="input" id="member-username" placeholder="username anggota…" maxlength="30" style="min-width:0;flex:1" autocapitalize="none">
+              <input class="input" id="member-username" maxlength="30" style="min-width:0;flex:1" autocapitalize="none">
               <button class="btn btn-purple btn-sm" type="submit" style="min-height:40px">${I.plus}</button>
             </form>
             <p class="hint">Anggota dapat membaca, membuat, dan mengedit naskahnya sendiri.</p>` : ''}
@@ -891,11 +891,11 @@
       <form id="script-form" novalidate>
         <label class="field">
           <span class="label-txt">Judul naskah</span>
-          <input class="input" name="title" value="${esc(isNew ? '' : script.title)}" maxlength="120" placeholder="cth: Video Sambutan Rektor" required>
+          <input class="input" name="title" value="${esc(isNew ? '' : script.title)}" maxlength="120" required>
         </label>
         <label class="field">
           <span class="label-txt">Isi naskah</span>
-          <textarea class="textarea" name="content" id="content-ta" style="min-height:240px;font-size:var(--fs-md)" placeholder="Tulis atau tempek naskah Anda di sini… Panjang tidak dibatasi.">${esc(isNew ? '' : script.content)}</textarea>
+          <textarea class="textarea" name="content" id="content-ta" style="min-height:240px;font-size:var(--fs-md)">${esc(isNew ? '' : script.content)}</textarea>
         </label>
         <div class="row spread" style="gap:10px">
           <label class="field" style="margin:0;flex:1;max-width:220px">
@@ -1135,15 +1135,15 @@
         ${isEdit ? '' : `
         <label class="field">
           <span class="label-txt">Username</span>
-          <input class="input" name="username" maxlength="30" placeholder="huruf kecil, 3-30 karakter" autocapitalize="none" required>
+          <input class="input" name="username" maxlength="30" autocapitalize="none" required>
         </label>`}
         <label class="field">
           <span class="label-txt">Nama tampilan</span>
-          <input class="input" name="display_name" value="${esc(isEdit ? user.display_name : '')}" maxlength="60" placeholder="cth: Humas Fajrianor">
+          <input class="input" name="display_name" value="${esc(isEdit ? user.display_name : '')}" maxlength="60">
         </label>
         <label class="field">
           <span class="label-txt">Email (opsional)</span>
-          <input class="input" name="email" type="email" value="${esc(isEdit ? user.email || '' : '')}" maxlength="120" placeholder="opsional">
+          <input class="input" name="email" type="email" value="${esc(isEdit ? user.email || '' : '')}" maxlength="120">
         </label>
         <label class="field">
           <span class="label-txt">Peran</span>
@@ -1155,7 +1155,7 @@
         </label>
         <label class="field">
           <span class="label-txt">${isEdit ? 'Kata sandi baru (kosongkan jika tetap)' : 'Kata sandi'}</span>
-          <input class="input" name="password" type="password" minlength="8" maxlength="128" placeholder="minimal 8 karakter" ${isEdit ? '' : 'required'}>
+          <input class="input" name="password" type="password" minlength="8" maxlength="128" ${isEdit ? '' : 'required'}>
         </label>
         ${isEdit ? `
         <label class="field row" style="gap:10px">

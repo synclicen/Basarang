@@ -17,7 +17,7 @@ node scripts/build-assets.mjs
 
 echo "→ Uji (unit + e2e)…"
 node scripts/test-align.mjs > /dev/null && echo "  ✓ unit test algoritma"
-node scripts/test-local.mjs > /dev/null && echo "  ✓ e2e worker (109 asersi)"
+node scripts/test-local.mjs > /dev/null && echo "  ✓ e2e worker (111 asersi)"
 
 echo "→ Deploy…"
 npx -y wrangler@latest deploy

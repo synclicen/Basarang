@@ -71,6 +71,7 @@
     mic: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
     auto: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 17.5 6.5"/><path d="M17.5 3 18.4 5.1 20.5 6 18.4 6.9 17.5 9 16.6 6.9 14.5 6 16.6 5.1Z" stroke-width="1.6"/><path d="M21.5 12.5v2.2M20.4 13.6h2.2" stroke-width="1.6"/></svg>',
     gear: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h.01a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>',
+    close: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     mirror: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M8 7 4 12l4 5M16 7l4 5-4 5"/></svg>',
     sync: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>',
     fontUp: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20 9 6l5 14M5.8 15.5h6.4M15 12h6M18 9v6"/></svg>',
@@ -749,7 +750,10 @@
           <button type="button" data-mode="timer" class="${mode === 'timer' ? 'on' : ''}">${ICON.auto} Timer</button>
         </div>`;
       elSettings.innerHTML = `
-        <h4>Pengaturan Teleprompter</h4>
+        <div class="p-set-head">
+          <h4>Pengaturan Teleprompter</h4>
+          <button type="button" class="p-ctrl" id="ps-close" title="Tutup panel pengaturan">${ICON.close}<span class="txt">Tutup</span></button>
+        </div>
         <div class="p-set-row"><span class="lbl">Mode gulir</span>${seg(S.mode)}</div>
         <div class="p-set-row"><span class="lbl">Bahasa suara</span>
           <select class="select" id="ps-lang" style="width:170px;min-height:34px">
@@ -808,6 +812,10 @@
       elSettings.querySelectorAll('[data-mode]').forEach((b) =>
         b.addEventListener('click', () => { setMode(b.dataset.mode); })
       );
+      elSettings.querySelector('#ps-close').addEventListener('click', () => {
+        elSettings.classList.add('hidden');
+        hudWake();
+      });
       elSettings.querySelectorAll('[data-align]').forEach((b) =>
         b.addEventListener('click', () => { setAlign(b.dataset.align); })
       );
