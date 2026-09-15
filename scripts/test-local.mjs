@@ -179,6 +179,14 @@ console.log('— Aset statis & kesehatan —');
       'pengaturan blok kata emas',
       t.includes('ps-wordblock') && t.includes('wordBlock') && (css.text || '').includes('.prompter.no-wordblock .p-word.cur')
     );
+    check(
+      'tombol HUD bawah: blok emas + ulang dari awal',
+      t.includes('id="p-wordblock"') && t.includes('id="p-restart"') && t.includes('function restartFromTop') && t.includes('function toggleWordBlock') && t.includes('function syncWordBlockButtons')
+    );
+    check(
+      'pintasan B & Home/0 terdaftar',
+      t.includes("case 'b':") && t.includes("case 'Home':") && t.includes('Home ulang dari awal')
+    );
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);

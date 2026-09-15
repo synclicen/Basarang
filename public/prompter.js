@@ -77,6 +77,8 @@
     video: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>',
     full: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
     gauge: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17a8 8 0 0 1 16 0"/><path d="M12 17l4-5"/><circle cx="12" cy="17" r="1.2" fill="currentColor" stroke="none"/></svg>',
+    block: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.5h8"/><rect x="5" y="9" width="14" height="7" rx="2.5"/></svg>',
+    restart: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h14"/><path d="M12 20.5V9.5"/><path d="M8.5 12.5 12 9l3.5 3.5"/></svg>',
   };
 
   window.Prompter = {
@@ -143,11 +145,13 @@
         <button class="p-ctrl" id="p-set" title="Pengaturan (S)">${ICON.gear}</button>
       </div>
       <div class="p-hud-bot">
+        <button class="p-ctrl" id="p-restart" title="Ulang dari awal — berhenti & kembali ke kata pertama (Home)">${ICON.restart}</button>
         <button class="p-ctrl" id="p-resync" title="Sinkron otomatis ulang dari kata terlihat (R)">${ICON.auto}</button>
         <button class="p-ctrl" id="p-font-down" title="Perkecil teks (-)">${ICON.fontDown}</button>
         <button class="p-play" id="p-play" title="Mulai / jeda (Spasi)">${ICON.play}</button>
         <button class="p-ctrl" id="p-font-up" title="Perbesar teks (+)">${ICON.fontUp}</button>
         <button class="p-ctrl" id="p-mirror" title="Cermin (M)">${ICON.mirror}</button>
+        <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="p-wordblock" title="Blok kata emas — tampil/sembunyi (B)">${ICON.block}</button>
         <div class="p-speed" id="p-speed-box">
           ${ICON.gauge}<input type="range" id="p-speed" min="0" max="3" step="1" value="1" aria-label="Kecepatan / antisipasi blok"><b class="p-speed-v" id="p-speed-v">+1</b>
         </div>
@@ -685,7 +689,7 @@
         <div class="p-set-row"><span class="lbl">Cermin vertikal</span>
           <button class="p-ctrl ${settings.mirrorY ? 'on' : ''}" id="ps-my" style="min-width:60px;height:34px">${settings.mirrorY ? 'Aktif' : 'Mati'}</button>
         </div>
-        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · R sinkron ulang · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat.</p>`;
+        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · B blok kata · R sinkron ulang · Home ulang dari awal · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat.</p>`;
 
       elSettings.querySelectorAll('[data-mode]').forEach((b) =>
         b.addEventListener('click', () => {
@@ -749,7 +753,10 @@
         });
       };
       bindToggle('ps-guide', 'guide', applyTypography);
-      bindToggle('ps-wordblock', 'wordBlock', applyTypography);
+      bindToggle('ps-wordblock', 'wordBlock', () => {
+        applyTypography();
+        syncWordBlockButtons(); // tombol HUD bawah ikut berubah saat diatur dari panel
+      });
       bindToggle('ps-mx', 'mirrorX', applyTypography);
       bindToggle('ps-my', 'mirrorY', applyTypography);
     }
@@ -791,6 +798,43 @@
       }
       jumpTo(best + 1);
       toastBanner('Disinkronkan ke: "' + (S.words[best] ? S.words[best].raw : '') + '"');
+    }
+
+    // Ulang dari awal: berhenti bila sedang berjalan, kembalikan seluruh status ke
+    // posisi awal (posisi kata, penyangga suara, pewaktu) lalu gulir instan ke atas.
+    // Menekan Mulai (Spasi) setelahnya memunculkan hitung mundur 3-2-1 — take baru.
+    function restartFromTop() {
+      if (S.playing) setPlaying(false);
+      S.committedPos = 0;
+      S.provisionalPos = 0;
+      S.unmatchedRun = 0;
+      S.recentSpoken = [];
+      S.elapsed = 0;
+      S.startedAt = null;
+      updateTime();
+      highlight(0);
+      scrollToWord(1, false);
+      toastBanner('Kembali ke awal — tekan Mulai (Spasi) untuk mengulang.');
+      hudWake();
+    }
+
+    // Toggle blok kata emas — tombol HUD bawah, pintasan B, dan panel pengaturan
+    // selalu tersinkron satu sama lain.
+    function syncWordBlockButtons() {
+      const hud = $('p-wordblock');
+      if (hud) hud.classList.toggle('on', settings.wordBlock);
+      const pb = elSettings.querySelector('#ps-wordblock');
+      if (pb) {
+        pb.classList.toggle('on', settings.wordBlock);
+        pb.textContent = settings.wordBlock ? 'Aktif' : 'Mati';
+      }
+    }
+    function toggleWordBlock() {
+      settings.wordBlock = !settings.wordBlock;
+      saveSettings(settings);
+      applyTypography();
+      syncWordBlockButtons();
+      hudWake();
     }
 
     function toggleFullscreen() {
@@ -844,6 +888,15 @@
         case 'r':
         case 'R':
           resyncFromView();
+          break;
+        case 'b':
+        case 'B':
+          toggleWordBlock();
+          break;
+        case 'Home':
+        case '0':
+          e.preventDefault();
+          restartFromTop();
           break;
         case 's':
         case 'S':
@@ -914,6 +967,8 @@
     $('p-full').addEventListener('click', toggleFullscreen);
     $('p-rec').addEventListener('click', toggleRecord);
     $('p-resync').addEventListener('click', resyncFromView);
+    $('p-restart').addEventListener('click', restartFromTop);
+    $('p-wordblock').addEventListener('click', toggleWordBlock);
     $('p-font-up').addEventListener('click', () => adjustFont(0.05));
     $('p-font-down').addEventListener('click', () => adjustFont(-0.05));
     $('p-mirror').addEventListener('click', () => {
