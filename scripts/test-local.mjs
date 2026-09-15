@@ -197,6 +197,13 @@ console.log('— Aset statis & kesehatan —');
       'dashboard: tombol hapus proyek langsung di kartu (pemilik/super admin)',
       a.includes('data-pdel="${p.id}"') && a.includes("wrap.querySelectorAll('[data-pdel]')") && a.includes('proj-card-wrap') && (css.text || '').includes('.proj-del { position: absolute; top: 12px; right: 12px;')
     );
+    // Regresi bug fatal: klik "Ya, lanjutkan" dibaca batal karena close() memicu
+    // onClose() → resolve(false) sebelum resolve(true) sempat berjalan (Promise
+    // hanya menerima resolusi pertama) — semua aksi konfirmasi diam-diam batal.
+    check(
+      'confirmDialog: resolve dipanggil sebelum close (klik Ya benar-benar konfirmasi)',
+      /resolve\(true\);\s*close\(\);/.test(a) && !/close\(\);\s*resolve\(true\);/.test(a)
+    );
   }
   const al = await req(null, 'GET', '/align.js');
   check('align.js tersaji', al.status === 200);

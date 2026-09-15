@@ -212,13 +212,16 @@
         onMount(root, close) {
           const yes = el(`<button class="btn ${danger ? 'btn-danger' : 'btn-gold'}" type="button">${esc(okLabel)}</button>`);
           const no = el('<button class="btn btn-ghost" type="button">Batal</button>');
+          // PENTING: resolve() harus dipanggil SEBELUM close() — close() memicu
+          // onClose() yang juga me-resolve(false); Promise hanya menerima resolusi
+          // pertama, jadi bila close() lebih dulu, klik "Ya" selalu dibaca batal.
           yes.addEventListener('click', () => {
-            close();
             resolve(true);
+            close();
           });
           no.addEventListener('click', () => {
-            close();
             resolve(false);
+            close();
           });
           const foot = el('<div class="modal-foot"></div>');
           foot.append(no, yes);
