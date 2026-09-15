@@ -608,6 +608,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
   box-shadow: 0 0 10px rgba(232, 181, 77, 0.6);
 }
 
+/* Pemilih mode gulir di HUD bawah — varian segmen setinggi tombol HUD;
+   tombol aktif berlatar gradasi emas (dari .seg button.on). */
+.p-mode { flex: none; border-radius: 12px; }
+.p-mode button { min-height: 42px; padding: 0 13px; }
+.p-mode button .icon { width: 15px; height: 15px; }
+
 /* Panel pengaturan prompter */
 .p-settings {
   position: absolute; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom)); transform: translateX(-50%);
@@ -679,6 +685,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
   .btn { min-height: 44px; }
   .btn-sm { min-height: 34px; }
   .p-ctrl { min-width: 46px; height: 46px; }
+  .p-mode button { min-height: 46px; }
   .p-word { padding-top: 2px; padding-bottom: 2px; }
 }
 
@@ -686,6 +693,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 @media (max-width: 620px) {
   .hide-sm { display: none; }
   .userchip .meta { display: none; }
+  .p-mode button .txt { display: none; }
+  .p-mode button { padding: 0 11px; }
 }
 
 /* Brand satu baris: ekor judul disembunyikan di layar sempit agar tidak terpotong */

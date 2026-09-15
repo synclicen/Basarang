@@ -187,6 +187,23 @@ console.log('— Aset statis & kesehatan —');
       'pintasan B & Home/0 terdaftar',
       t.includes("case 'b':") && t.includes("case 'Home':") && t.includes('Home ulang dari awal')
     );
+    check(
+      'pemilih mode gulir di HUD bawah',
+      t.includes('id="p-mode"') && t.includes('data-mode="voice"') && t.includes('data-mode="timer"') && t.includes('class="seg p-mode"')
+    );
+    check(
+      'setMode/syncModeButtons satu pintu ganti mode',
+      t.includes('function setMode') && t.includes('function syncModeButtons') && t.includes("setMode(b.dataset.mode)") && t.includes("root.querySelectorAll('[data-mode]')")
+    );
+    check(
+      'fallback peramban menyinkronkan tombol HUD',
+      t.indexOf('syncModeButtons();') > t.indexOf('function startVoice') && t.indexOf('syncModeButtons();', t.indexOf('if (!supportedVoice())', t.indexOf('function startVoice'))) > 0
+    );
+    check('CSS pemilih mode HUD', (css.text || '').includes('.p-mode {') && (css.text || '').includes('.p-mode button') && (css.text || '').includes('.p-mode button .txt { display: none; }'));
+    check(
+      'pintasan T ganti mode terdaftar',
+      t.includes("case 't':") && t.includes('T ganti mode gulir')
+    );
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);

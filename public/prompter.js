@@ -152,6 +152,10 @@
         <button class="p-ctrl" id="p-font-up" title="Perbesar teks (+)">${ICON.fontUp}</button>
         <button class="p-ctrl" id="p-mirror" title="Cermin (M)">${ICON.mirror}</button>
         <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="p-wordblock" title="Blok kata emas — tampil/sembunyi (B)">${ICON.block}</button>
+        <div class="seg p-mode" id="p-mode" role="group" aria-label="Mode gulir">
+          <button type="button" data-mode="voice" class="${S.mode === 'voice' ? 'on' : ''}" title="Ikut Suara — naskah mengikuti ucapan (T)">${ICON.mic}<span class="txt">Suara</span></button>
+          <button type="button" data-mode="timer" class="${S.mode === 'timer' ? 'on' : ''}" title="Timer — gulir otomatis sesuai kecepatan baca (T)">${ICON.auto}<span class="txt">Timer</span></button>
+        </div>
         <div class="p-speed" id="p-speed-box">
           ${ICON.gauge}<input type="range" id="p-speed" min="0" max="3" step="1" value="1" aria-label="Kecepatan / antisipasi blok"><b class="p-speed-v" id="p-speed-v">+1</b>
         </div>
@@ -335,6 +339,7 @@
         banner('Pengenalan suara tidak tersedia di peramban ini — mode Timer otomatis aktif. Gunakan Chrome/Edge untuk mode Suara.', 6000);
         updateSettingsPanel();
         applySpeedControl();
+        syncModeButtons(); // tombol HUD bawah ikut mode aktif
         return;
       }
       if (S.recActive) return;
@@ -689,20 +694,10 @@
         <div class="p-set-row"><span class="lbl">Cermin vertikal</span>
           <button class="p-ctrl ${settings.mirrorY ? 'on' : ''}" id="ps-my" style="min-width:60px;height:34px">${settings.mirrorY ? 'Aktif' : 'Mati'}</button>
         </div>
-        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · B blok kata · R sinkron ulang · Home ulang dari awal · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat.</p>`;
+        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · B blok kata · T ganti mode gulir · R sinkron ulang · Home ulang dari awal · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat.</p>`;
 
       elSettings.querySelectorAll('[data-mode]').forEach((b) =>
-        b.addEventListener('click', () => {
-          S.mode = b.dataset.mode;
-          settings.mode = S.mode;
-          saveSettings(settings);
-          updateSettingsPanel();
-          applySpeedControl(); // makna slider HUD bawah mengikuti mode
-          if (S.playing) {
-            setPlaying(false);
-            setPlaying(true);
-          }
-        })
+        b.addEventListener('click', () => { setMode(b.dataset.mode); })
       );
       elSettings.querySelector('#ps-lang').addEventListener('change', (e) => {
         settings.lang = e.target.value;
@@ -818,6 +813,29 @@
       hudWake();
     }
 
+    // Ganti mode gulir — satu pintu untuk segmen HUD bawah, panel pengaturan,
+    // dan pintasan T. Semua tombol ber-label data-mode (HUD & panel) selalu
+    // sinkron dengan mode aktif, begitu pula makna slider kecepatan.
+    function syncModeButtons() {
+      root.querySelectorAll('[data-mode]').forEach((b) => {
+        b.classList.toggle('on', b.dataset.mode === S.mode);
+      });
+    }
+    function setMode(mode) {
+      if (S.mode === mode) return;
+      S.mode = mode;
+      settings.mode = mode;
+      saveSettings(settings);
+      applySpeedControl(); // makna slider HUD bawah mengikuti mode
+      syncModeButtons();
+      toastBanner('Mode gulir: ' + (mode === 'voice' ? 'Ikut Suara' : 'Timer'));
+      if (S.playing) {
+        setPlaying(false);
+        setPlaying(true);
+      }
+      hudWake();
+    }
+
     // Toggle blok kata emas — tombol HUD bawah, pintasan B, dan panel pengaturan
     // selalu tersinkron satu sama lain.
     function syncWordBlockButtons() {
@@ -892,6 +910,10 @@
         case 'b':
         case 'B':
           toggleWordBlock();
+          break;
+        case 't':
+        case 'T':
+          setMode(S.mode === 'voice' ? 'timer' : 'voice');
           break;
         case 'Home':
         case '0':
@@ -969,6 +991,10 @@
     $('p-resync').addEventListener('click', resyncFromView);
     $('p-restart').addEventListener('click', restartFromTop);
     $('p-wordblock').addEventListener('click', toggleWordBlock);
+    // Pemilih mode gulir di HUD bawah
+    $('p-mode').querySelectorAll('[data-mode]').forEach((b) =>
+      b.addEventListener('click', () => { setMode(b.dataset.mode); })
+    );
     $('p-font-up').addEventListener('click', () => adjustFont(0.05));
     $('p-font-down').addEventListener('click', () => adjustFont(-0.05));
     $('p-mirror').addEventListener('click', () => {
@@ -1019,6 +1045,7 @@
       settings.mode = 'timer';
       banner('Mode Suara memerlukan Chrome/Edge. Mode Timer aktif. (Firefox/Safari: gulir otomatis + kontrol manual)', 6500);
       applySpeedControl();
+      syncModeButtons(); // tombol HUD bawah ikut mode aktif
     }
     S._clock = setInterval(updateTime, 1000);
     hudWake();
