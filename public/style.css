@@ -486,7 +486,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 }
 .p-para { margin: 0 0 0.65em; }
 
-/* Panduan baris baca */
+/* Panduan baris baca — HARUS anak langsung .prompter (di luar .p-scroll)
+   agar tetap diam di 42% layar saat naskah digulir. Jangan dimasukkan ke
+   .p-scroll: elemen absolut di dalam scroll container ikut tergulir. */
 .p-guide {
   position: absolute; left: 0; right: 0; top: 42%;
   height: 0; z-index: 2; pointer-events: none;

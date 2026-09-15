@@ -161,6 +161,16 @@ console.log('— Aset statis & kesehatan —');
   check('align.js tersaji', al.status === 200);
   const pj = await req(null, 'GET', '/prompter.js');
   check('prompter.js tersaji', pj.status === 200);
+  // Regresi garis panduan: .p-guide harus di LUAR .p-scroll (muncul setelah p-content,
+  // sebagai saudara root) — jika di dalam wadah gulir, garis ikut tergulir bersama naskah.
+  {
+    const t = (await pj.res.text()) || '';
+    check(
+      'garis panduan di luar wadah gulir',
+      t.indexOf('id="p-content"') >= 0 && t.indexOf('id="p-guide"') > t.indexOf('id="p-content"')
+    );
+    check('garis panduan absolut 42%', (css.text || '').includes('.p-guide') && (css.text || '').includes('top: 42%'));
+  }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);
   const nf = await req(null, 'GET', '/tidak-ada');

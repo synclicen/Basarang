@@ -125,9 +125,9 @@
     root.innerHTML = `
       <div class="p-progress" id="p-progress"></div>
       <div class="p-scroll" id="p-scroll">
-        <div class="p-guide" id="p-guide"><span class="line"></span><span class="tri-l"></span><span class="tri-r"></span></div>
         <div class="p-content" id="p-content"></div>
       </div>
+      <div class="p-guide" id="p-guide"><span class="line"></span><span class="tri-l"></span><span class="tri-r"></span></div>
       <div class="p-fade top"></div>
       <div class="p-fade bot"></div>
       <div class="p-hud-top">
