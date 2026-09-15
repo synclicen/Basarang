@@ -258,6 +258,12 @@ console.log('— Proyek & naskah —');
   check('manager membuat proyek', mkp.status === 201);
   const pid = mkp.data.data.project.id;
 
+  // Regresi: kirim-ganda proyek (klik dua kali / jaringan lambat) tidak boleh mendobel
+  const dupProj = await req('manager', 'POST', '/api/projects', {
+    body: { name: 'Konten Humas 2026', description: 'uji kirim-ganda' },
+  });
+  check('kirim-ganda proyek tidak mendobel (guard 15 detik)', dupProj.status === 201 && dupProj.data.data.project.id === pid, 'id=' + JSON.stringify(dupProj.data.data.project.id));
+
   const mks = await req('manager', 'POST', `/api/projects/${pid}/scripts`, {
     body: {
       title: 'Sambutan Rektor Dies Natalis',
@@ -267,6 +273,12 @@ console.log('— Proyek & naskah —');
   });
   check('manager membuat naskah', mks.status === 201);
   const sid = mks.data.data.script.id;
+
+  // Regresi: kirim-ganda naskah (autosave vs Simpan beririsan) tidak boleh mendobel
+  const dupScript = await req('manager', 'POST', `/api/projects/${pid}/scripts`, {
+    body: { title: 'Sambutan Rektor Dies Natalis', content: 'uji kirim-ganda' },
+  });
+  check('kirim-ganda naskah tidak mendobel (guard 15 detik)', dupScript.status === 201 && dupScript.data.data.script.id === sid, 'id=' + JSON.stringify(dupScript.data.data.script.id));
 
   const put = await req('manager', 'PUT', `/api/scripts/${sid}`, {
     body: { content: 'Naskah revisi: Assalamualaikum Bapak Ibu sekalian.', title: 'Sambutan Rektor (revisi)' },

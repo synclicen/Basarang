@@ -325,6 +325,14 @@ export async function handleApi(request, env, url) {
     const body = await readJsonBody(request);
     const name = reqStr(body.name, 'nama proyek', 2, 120);
     const description = optStr(body.description, 'deskripsi', 600);
+    // Guard kirim-ganda: proyek bernama sama oleh pemilik sama dalam 15 detik terakhir
+    // dikembalikan yang sudah ada — mencegah proyek dobel karena klik dua kali / jaringan lambat.
+    const cutoff = new Date(Date.now() - 15000).toISOString();
+    const recent = await db
+      .prepare('SELECT * FROM projects WHERE owner_id = ? AND name = ? AND created_at > ? ORDER BY id DESC LIMIT 1')
+      .bind(user.id, name, cutoff)
+      .first();
+    if (recent) return json({ ok: true, data: { project: recent } }, 201);
     const now = nowIso();
     const res = await db
       .prepare('INSERT INTO projects (name, description, owner_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -461,6 +469,14 @@ export async function handleApi(request, env, url) {
     const title = reqStr(body.title, 'judul naskah', 2, 120);
     const content = optStr(body.content, 'isi naskah', MAX_SCRIPT_CHARS);
     const wpm = body.words_per_minute !== undefined ? validWpm(body.words_per_minute) : 140;
+    // Guard kirim-ganda: naskah berjudul sama oleh pembuat sama pada proyek sama dalam 15 detik
+    // dikembalikan yang sudah ada — mencegah naskah dobel (autosave vs klik Simpan beririsan).
+    const cutoff = new Date(Date.now() - 15000).toISOString();
+    const recent = await db
+      .prepare('SELECT * FROM scripts WHERE project_id = ? AND title = ? AND created_by = ? AND created_at > ? ORDER BY id DESC LIMIT 1')
+      .bind(projectId, title, user.id, cutoff)
+      .first();
+    if (recent) return json({ ok: true, data: { script: recent } }, 201);
     const now = nowIso();
     const res = await db
       .prepare(

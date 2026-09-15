@@ -581,11 +581,15 @@
       onMount(root, close) {
         root.querySelector('#proj-form').addEventListener('submit', async (e) => {
           e.preventDefault();
+          const btn = e.target.querySelector('button[type=submit]');
+          if (btn.disabled) return; // cegah kirim ganda (klik dua kali / Enter dua kali)
           const errEl = root.querySelector('#proj-err');
           errEl.textContent = '';
           const fd = new FormData(e.target);
           const body = { name: fd.get('name'), description: fd.get('description') };
           if (isEdit) body.status = fd.get('status');
+          btn.disabled = true;
+          btn.textContent = 'Menyimpan…';
           try {
             const data = isEdit
               ? await api('/projects/' + project.id, { method: 'PATCH', body })
@@ -596,6 +600,8 @@
             else render();
           } catch (err) {
             errEl.textContent = err.message;
+            btn.disabled = false;
+            btn.textContent = isEdit ? 'Simpan Perubahan' : 'Buat Proyek';
           }
         });
       },
@@ -763,8 +769,11 @@
       memberForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const input = document.getElementById('member-username');
+        const btn = memberForm.querySelector('button[type=submit]');
+        if (btn.disabled) return; // cegah kirim ganda
         const username = input.value.trim().toLowerCase();
         if (!username) return;
+        btn.disabled = true;
         try {
           const data = await api(`/projects/${project.id}/members`, { method: 'POST', body: { username } });
           members.push(data);
@@ -773,6 +782,8 @@
           renderMembers();
         } catch (err) {
           toast(err.message, 'err');
+        } finally {
+          btn.disabled = false;
         }
       });
     }
@@ -838,6 +849,9 @@
         let savedId = isNew ? null : script.id;
         let lastSaved = isNew ? null : { title: script.title, content: script.content, wpm: script.words_per_minute };
         let dirty = false;
+        // Antrean simpan: autosave + Simpan + Teleprompter tidak pernah berjalan paralel,
+        // dan setelah simpan pertama (POST) semua simpan berikutnya jadi PUT — mencegah naskah ganda.
+        let saveChain = Promise.resolve();
 
         const updateStats = () => {
           const w = wordCount(ta.value);
@@ -860,43 +874,50 @@
           }
         });
 
-        const doSave = async () => {
-          const title = form.title.value.trim();
-          if (title.length < 2) {
-            errEl.textContent = 'Judul minimal 2 karakter.';
-            return null;
-          }
-          const body = {
-            title,
-            content: ta.value,
-            words_per_minute: Number(form.words_per_minute.value) || 140,
-          };
-          try {
-            let data;
-            if (isNew) {
-              data = await api(`/projects/${project.id}/scripts`, { method: 'POST', body });
-              savedId = data.script.id;
-              history.replaceState(null, '', '#/project/' + project.id);
-            } else {
-              data = await api('/scripts/' + savedId, { method: 'PUT', body });
+        const doSave = () => {
+          saveChain = saveChain.then(async () => {
+            const title = form.title.value.trim();
+            if (title.length < 2) {
+              errEl.textContent = 'Judul minimal 2 karakter.';
+              return null;
             }
-            lastSaved = { title: body.title, content: body.content, wpm: body.words_per_minute };
-            dirty = false;
-            saveHint.textContent = 'Tersimpan ✓ ' + new Date().toLocaleTimeString('id-ID');
-            saveHint.style.color = 'var(--ok)';
-            return data.script;
-          } catch (err) {
-            saveHint.textContent = 'Gagal menyimpan — coba lagi.';
-            saveHint.style.color = 'var(--err)';
-            toast(err.message, 'err', 4000);
-            return null;
-          }
+            const body = {
+              title,
+              content: ta.value,
+              words_per_minute: Number(form.words_per_minute.value) || 140,
+            };
+            try {
+              let data;
+              if (savedId) {
+                data = await api('/scripts/' + savedId, { method: 'PUT', body });
+              } else {
+                data = await api(`/projects/${project.id}/scripts`, { method: 'POST', body });
+                savedId = data.script.id;
+                history.replaceState(null, '', '#/project/' + project.id);
+              }
+              lastSaved = { title: body.title, content: body.content, wpm: body.words_per_minute };
+              dirty = false;
+              saveHint.textContent = 'Tersimpan ✓ ' + new Date().toLocaleTimeString('id-ID');
+              saveHint.style.color = 'var(--ok)';
+              return data.script;
+            } catch (err) {
+              saveHint.textContent = 'Gagal menyimpan — coba lagi.';
+              saveHint.style.color = 'var(--err)';
+              toast(err.message, 'err', 4000);
+              return null;
+            }
+          });
+          return saveChain;
         };
         const autosave = debounce(doSave, 1300);
 
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
+          const btn = form.querySelector('button[type=submit]');
+          if (btn.disabled) return; // cegah kirim ganda
+          btn.disabled = true;
           const s = await doSave();
+          btn.disabled = false;
           if (s) {
             close();
             toast('Naskah tersimpan.', 'ok');
@@ -1073,6 +1094,8 @@
       onMount(root, close) {
         root.querySelector('#user-form').addEventListener('submit', async (e) => {
           e.preventDefault();
+          const btn = e.target.querySelector('button[type=submit]');
+          if (btn.disabled) return; // cegah kirim ganda
           const errEl = root.querySelector('#user-err');
           errEl.textContent = '';
           const fd = new FormData(e.target);
@@ -1084,6 +1107,8 @@
           const pw = fd.get('password');
           if (pw) body.password = pw;
           if (isEdit) body.is_active = !!fd.get('is_active');
+          btn.disabled = true;
+          btn.textContent = 'Menyimpan…';
           try {
             if (isEdit) await api('/users/' + user.id, { method: 'PATCH', body });
             else await api('/users', { method: 'POST', body });
@@ -1092,6 +1117,8 @@
             render();
           } catch (err) {
             errEl.textContent = err.message;
+            btn.disabled = false;
+            btn.textContent = isEdit ? 'Simpan' : 'Tambah Pengguna';
           }
         });
       },
