@@ -167,10 +167,29 @@ console.log('— Aset statis & kesehatan —');
     'lapisan bergeser di atas footer (--footer-h)',
     (css.text || '').includes('--footer-h') && (css.text || '').includes('.app-root { flex: 1 0 auto; width: 100%; padding-bottom: var(--footer-h); }') && (css.text || '').includes('.p-hud-bot { bottom: var(--footer-h);') && (css.text || '').includes('padding: 38dvh 18px calc(46dvh + var(--footer-h));')
   );
+  const jsText = (await js.res.text()) || '';
   check(
     'tinggi footer diukur dinamis app.js',
-    ((await js.res.text()) || '').includes('syncFooterHeight')
+    jsText.includes('syncFooterHeight')
   );
+  // Regresi UX hapus: naskah terakhir terhapus → tawarkan hapus proyek kosong;
+  // empty-state memuat tombol "Hapus Proyek Ini"; tombol hapus naskah hanya untuk
+  // pengelola (API 403 untuk anggota biasa — tombol tak boleh menjanjikan lain).
+  {
+    const a = jsText;
+    check(
+      'hapus naskah terakhir → tawarkan hapus proyek kosong',
+      a.includes('Hapus proyek kosong ini?') && a.includes('scripts.length <= 1 && can_manage') && a.includes("'Ya, hapus proyek'")
+    );
+    check(
+      'empty-state: tombol Hapus Proyek Ini (btn-del-proj-2)',
+      a.includes('btn-del-proj-2') && a.includes('Hapus Proyek Ini') && a.includes('const deleteProject = async () =>')
+    );
+    check(
+      'tombol hapus naskah hanya untuk pengelola (selaras API 403 anggota)',
+      !a.includes('can_manage || s.created_by === state.user.id) ? `<button class="btn btn-danger')
+    );
+  }
   const al = await req(null, 'GET', '/align.js');
   check('align.js tersaji', al.status === 200);
   const pj = await req(null, 'GET', '/prompter.js');
@@ -545,6 +564,28 @@ console.log('— Statistik & bersih-bersih —');
   check('hapus pengguna pemilik proyek', delUser.status === 200);
   const orphan = await req('admin', 'GET', `/api/scripts/${sidTmp}`);
   check('naskah proyek pengguna terhapus ikut musnah (tanpa data yatim)', orphan.status === 404, 'status=' + orphan.status);
+
+  // Semantika hapus: naskah vs proyek — hapus naskah TIDAK menghapus proyeknya
+  // (proyek = wadah banyak naskah); hapus proyek memusnahkan seluruh naskahnya.
+  const mkProjSem = await req('admin', 'POST', '/api/projects', {
+    body: { name: 'Proyek Semantik Hapus', description: 'uji naskah vs proyek' },
+  });
+  const pidSem = mkProjSem.data.data.project.id;
+  const mkScrSem = await req('admin', 'POST', `/api/projects/${pidSem}/scripts`, {
+    body: { title: 'Naskah Uji Hapus', content: 'isi naskah uji hapus' },
+  });
+  const sidSem = mkScrSem.data.data.script.id;
+  const delScrSem = await req('admin', 'DELETE', '/api/scripts/' + sidSem);
+  check('hapus naskah sukses', delScrSem.status === 200);
+  const projAfter = await req('admin', 'GET', '/api/projects/' + pidSem);
+  check(
+    'proyek tetap ada setelah naskah terakhirnya dihapus (naskah bukan proyek)',
+    projAfter.status === 200 && (projAfter.data.data.scripts || []).length === 0
+  );
+  const delProjSem = await req('admin', 'DELETE', '/api/projects/' + pidSem);
+  check('hapus proyek sukses', delProjSem.status === 200);
+  const projGone = await req('admin', 'GET', '/api/projects/' + pidSem);
+  check('proyek benar-benar terhapus setelah DELETE proyek', projGone.status === 404);
 
   const notFound = await req('admin', 'GET', '/api/endpoint-tak-ada');
   check('endpoint tak dikenal → 404', notFound.status === 404);

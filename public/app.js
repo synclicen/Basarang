@@ -705,7 +705,10 @@
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1">
         <h3>Belum ada naskah</h3>
         <p>Tulis naskah presentasi Anda, lalu buka teleprompter — teks akan mengikuti suara Anda.</p>
-        ${canAddScript ? `<button class="btn btn-gold" id="btn-new-script-2">${I.plus} Tulis Naskah Pertama</button>` : ''}
+        <div class="row mt-3" style="justify-content:center">
+          ${canAddScript ? `<button class="btn btn-gold" id="btn-new-script-2">${I.plus} Tulis Naskah Pertama</button>` : ''}
+          ${can_manage ? `<button class="btn btn-danger" id="btn-del-proj-2">${I.trash} Hapus Proyek Ini</button>` : ''}
+        </div>
       </div>`;
       const b2 = document.getElementById('btn-new-script-2');
       if (b2) b2.addEventListener('click', () => scriptEditor(project, null));
@@ -723,7 +726,7 @@
           <div class="actions">
             <a class="btn btn-gold btn-sm" href="#/prompter/${s.id}">${I.prompter} Teleprompter</a>
             <button class="btn btn-ghost btn-sm" data-edit="${s.id}">${I.edit}</button>
-            ${(can_manage || s.created_by === state.user.id) ? `<button class="btn btn-danger btn-sm" data-del="${s.id}">${I.trash}</button>` : ''}
+            ${can_manage ? `<button class="btn btn-danger btn-sm" data-del="${s.id}" title="Hapus naskah">${I.trash}</button>` : ''}
           </div>
         </div>`;
         })
@@ -742,6 +745,26 @@
           try {
             await api('/scripts/' + s.id, { method: 'DELETE' });
             toast('Naskah dihapus.', 'ok');
+            // Naskah terakhir terhapus → proyek jadi kosong dan mudah terkesan "tak terhapus"
+            // (proyek = wadah banyak naskah, bukan naskah itu sendiri) — tawarkan hapus sekalian.
+            if (scripts.length <= 1 && can_manage) {
+              const delProj = await confirmDialog(
+                'Hapus proyek kosong ini?',
+                `Proyek "${project.name}" kini tidak memiliki naskah. Hapus proyeknya sekalian?`,
+                { okLabel: 'Ya, hapus proyek' }
+              );
+              if (delProj) {
+                try {
+                  await api('/projects/' + project.id, { method: 'DELETE' });
+                  toast('Proyek dihapus.', 'ok');
+                  navigate('#/dashboard');
+                } catch (err) {
+                  toast(err.message, 'err');
+                  render();
+                }
+                return;
+              }
+            }
             render();
           } catch (err) {
             toast(err.message, 'err');
@@ -813,19 +836,23 @@
 
     const editBtn = document.getElementById('btn-edit-proj');
     if (editBtn) editBtn.addEventListener('click', () => projectForm(project, () => render()));
+    // Hapus proyek — dipakai tombol header (btn-del-proj) maupun tombol empty-state
+    // "Hapus Proyek Ini" (btn-del-proj-2) saat proyek tak punya naskah lagi.
+    const deleteProject = async () => {
+      const yes = await confirmDialog('Hapus proyek?', `Proyek "${project.name}" beserta seluruh naskah dan anggotanya akan dihapus permanen.`);
+      if (!yes) return;
+      try {
+        await api('/projects/' + project.id, { method: 'DELETE' });
+        toast('Proyek dihapus.', 'ok');
+        navigate('#/dashboard');
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
     const delBtn = document.getElementById('btn-del-proj');
-    if (delBtn)
-      delBtn.addEventListener('click', async () => {
-        const yes = await confirmDialog('Hapus proyek?', `Proyek "${project.name}" beserta seluruh naskah dan anggotanya akan dihapus permanen.`);
-        if (!yes) return;
-        try {
-          await api('/projects/' + project.id, { method: 'DELETE' });
-          toast('Proyek dihapus.', 'ok');
-          navigate('#/dashboard');
-        } catch (err) {
-          toast(err.message, 'err');
-        }
-      });
+    if (delBtn) delBtn.addEventListener('click', deleteProject);
+    const delBtn2 = document.getElementById('btn-del-proj-2');
+    if (delBtn2) delBtn2.addEventListener('click', deleteProject);
   }
 
   // ---------- Editor naskah (modal, autosave) ----------
