@@ -230,6 +230,22 @@ console.log('— Aset statis & kesehatan —');
       'CSS footage di atas semua lapisan (z-index 21)',
       (css.text || '').includes('.p-video-box') && (css.text || '').includes('z-index: 21') && (css.text || '').includes('.p-video-dot') && (css.text || '').includes('.p-video-off')
     );
+    check(
+      'HUD kompak: tombol 36px, play 48px, padding 5px',
+      (css.text || '').includes('min-width: 36px; height: 36px') && (css.text || '').includes('min-width: 48px; height: 48px') && (css.text || '').includes('padding: 5px clamp(8px, 2.5vw, 16px)') && (css.text || '').includes('width: clamp(58px, 11vw, 110px); height: 22px;')
+    );
+    check(
+      'ponsel: kontrol satu baris (elemen sekunder disembunyikan)',
+      (css.text || '').includes('.p-hud-bot .p-time, .p-hud-bot .p-pct') && (css.text || '').includes('.p-hud-bot #p-font-up') && (css.text || '').includes('.p-hud-bot #p-mirror { display: none; }')
+    );
+    check(
+      'layar penuh: ruang footer diklaim kembali',
+      (css.text || '').includes('.prompter.p-fs { --footer-h: 0px; }') && t.includes('fullscreenchange')
+    );
+    check(
+      'auto-hide HUD bawah meluncur ke bawah (translateY 100%)',
+      (css.text || '').includes('.p-hud-hidden .p-hud-bot') && (css.text || '').includes('translateY(100%)')
+    );
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);

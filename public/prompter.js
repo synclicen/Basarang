@@ -1051,6 +1051,7 @@
       clearTimeout(S._bannerT);
       window.removeEventListener('resize', invalidateMetrics);
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onFsChange);
       try {
         if (S.recorder.mediaRecorder && S.recorder.mediaRecorder.state === 'recording') S.recorder.mediaRecorder.stop();
         if (S.recorder.stream) S.recorder.stream.getTracks().forEach((t) => t.stop());
@@ -1125,6 +1126,10 @@
     elScroll.addEventListener('touchmove', manualDelay, { passive: true });
     window.addEventListener('resize', invalidateMetrics);
     document.addEventListener('keydown', onKey);
+    // Layar penuh: peramban hanya merender .prompter (footer tak dirender) →
+    // klaim kembali ruang footer agar naskah lebih luas.
+    const onFsChange = () => root.classList.toggle('p-fs', !!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
 
     // ---------- Init ----------
 
