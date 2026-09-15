@@ -12,6 +12,7 @@
     lang: 'id-ID',
     wpm: 140,
     speed: 1, // pengganda kecepatan mode timer
+    voiceLead: 1, // antisipasi blok mode suara: berapa kata blok emas mendahului suara (0-3) — kompensasi latensi pengenalan suara
     fontSize: 1, // pengganda
     lineHeight: 1.55,
     theme: 'gold', // 'gold' | 'contrast' | 'silver'
@@ -74,6 +75,7 @@
     fontDown: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20 9 6l5 14M5.8 15.5h6.4M15 15h6M18 12v6"/></svg>',
     video: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg>',
     full: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+    gauge: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17a8 8 0 0 1 16 0"/><path d="M12 17l4-5"/><circle cx="12" cy="17" r="1.2" fill="currentColor" stroke="none"/></svg>',
   };
 
   window.Prompter = {
@@ -145,6 +147,9 @@
         <button class="p-play" id="p-play" title="Mulai / jeda (Spasi)">${ICON.play}</button>
         <button class="p-ctrl" id="p-font-up" title="Perbesar teks (+)">${ICON.fontUp}</button>
         <button class="p-ctrl" id="p-mirror" title="Cermin (M)">${ICON.mirror}</button>
+        <div class="p-speed" id="p-speed-box">
+          ${ICON.gauge}<input type="range" id="p-speed" min="0" max="3" step="1" value="1" aria-label="Kecepatan / antisipasi blok"><b class="p-speed-v" id="p-speed-v">+1</b>
+        </div>
         <span class="p-time" id="p-time">00:00</span>
         <span class="p-pct" id="p-pct">0%</span>
       </div>
@@ -163,6 +168,9 @@
     const elStatus = $('p-status');
     const elStatusTxt = $('p-status-txt');
     const elGuide = $('p-guide');
+    const elSpeedBox = $('p-speed-box');
+    const elSpeed = $('p-speed');
+    const elSpeedV = $('p-speed-v');
     const elSettings = $('p-settings');
     const elCount = $('p-count');
     const elVideo = $('p-video');
@@ -256,7 +264,11 @@
         return;
       }
       const t0 = performance.now();
-      const dur = Math.min(650, Math.max(160, Math.abs(diff) * 0.45));
+      // Mode suara: animasi lebih ringkas agar blok terasa seketika —
+      // latensi pengenalan suara sudah cukup besar, jangan tambah jeda visual lagi.
+      const dur = S.mode === 'voice'
+        ? Math.min(340, Math.max(100, Math.abs(diff) * 0.25))
+        : Math.min(650, Math.max(160, Math.abs(diff) * 0.45));
       const step = (t) => {
         const k = Math.min(1, (t - t0) / dur);
         const e = 1 - Math.pow(1 - k, 3); // ease-out cubic
@@ -265,6 +277,31 @@
         else S.animScroll.raf = null;
       };
       S.animScroll.raf = requestAnimationFrame(step);
+    }
+
+    // Posisi tampilan mode suara: blok emas mendahului N kata (default +1) untuk
+    // mengompensasi latensi pengenalan suara — HANYA tampilan; status penyelarasan
+    // (committedPos) tetap murni sehingga akurasi pencocokan tidak terganggu.
+    function displayPos(pos) {
+      const lead = S.mode === 'voice' ? (settings.voiceLead || 0) : 0;
+      return Math.max(0, Math.min(pos + lead, S.words.length));
+    }
+
+    // Slider HUD bawah — maknanya mengikuti mode aktif:
+    // Ikut Suara: antisipasi blok kata (0–3 kata ke depan);
+    // Timer: kecepatan gulir otomatis (KPM).
+    function applySpeedControl() {
+      if (S.mode === 'voice') {
+        elSpeedBox.title = 'Antisipasi blok kata — blok emas mendahului suara N kata (0–3). Naikkan bila blok terasa telat, turunkan bila mendahului.';
+        elSpeed.min = '0'; elSpeed.max = '3'; elSpeed.step = '1';
+        elSpeed.value = String(settings.voiceLead || 0);
+        elSpeedV.textContent = '+' + (settings.voiceLead || 0);
+      } else {
+        elSpeedBox.title = 'Kecepatan gulir otomatis — kata per menit (60–250)';
+        elSpeed.min = '60'; elSpeed.max = '250'; elSpeed.step = '5';
+        elSpeed.value = String(settings.wpm || 140);
+        elSpeedV.textContent = String(settings.wpm || 140);
+      }
     }
 
     function jumpTo(idx) {
@@ -292,6 +329,7 @@
         settings.mode = 'timer';
         banner('Pengenalan suara tidak tersedia di peramban ini — mode Timer otomatis aktif. Gunakan Chrome/Edge untuk mode Suara.', 6000);
         updateSettingsPanel();
+        applySpeedControl();
         return;
       }
       if (S.recActive) return;
@@ -366,8 +404,9 @@
         ingestSpoken(interim, false);
       } else if (S.provisionalPos !== S.committedPos) {
         S.provisionalPos = S.committedPos;
-        highlight(S.provisionalPos);
-        scrollToWord(S.provisionalPos);
+        const disp = displayPos(S.provisionalPos);
+        highlight(disp);
+        scrollToWord(disp);
       }
     }
 
@@ -401,8 +440,9 @@
       } else {
         S.provisionalPos = Math.max(S.provisionalPos, r.pos);
       }
-      highlight(S.provisionalPos);
-      if (Date.now() > S.manualScrollUntil) scrollToWord(S.provisionalPos);
+      const disp = displayPos(S.provisionalPos);
+      highlight(disp);
+      if (Date.now() > S.manualScrollUntil) scrollToWord(disp);
     }
 
     // ---------- Mode timer ----------
@@ -613,6 +653,10 @@
           <span class="row" style="gap:8px"><input type="range" id="ps-speed" min="0.5" max="2" step="0.1" value="${settings.speed}">
           <b id="ps-speed-v" style="min-width:52px;font-size:var(--fs-xs)">×${settings.speed.toFixed(1)}</b></span>
         </div>
+        <div class="p-set-row"><span class="lbl">Antisipasi blok (suara)</span>
+          <span class="row" style="gap:8px"><input type="range" id="ps-lead" min="0" max="3" step="1" value="${settings.voiceLead}">
+          <b id="ps-lead-v" style="min-width:52px;font-size:var(--fs-xs)">+${settings.voiceLead} kata</b></span>
+        </div>
         <div class="p-set-row"><span class="lbl">Ukuran teks</span>
           <span class="row" style="gap:8px"><input type="range" id="ps-font" min="0.7" max="1.6" step="0.05" value="${settings.fontSize}">
           <b id="ps-font-v" style="min-width:52px;font-size:var(--fs-xs)">×${settings.fontSize.toFixed(2)}</b></span>
@@ -645,6 +689,7 @@
           settings.mode = S.mode;
           saveSettings(settings);
           updateSettingsPanel();
+          applySpeedControl(); // makna slider HUD bawah mengikuti mode
           if (S.playing) {
             setPlaying(false);
             setPlaying(true);
@@ -669,8 +714,19 @@
           if (after) after();
         });
       };
-      bindRange('ps-wpm', 'ps-wpm-v', 'wpm', (x) => x + ' KPM', invalidateMetrics);
+      bindRange('ps-wpm', 'ps-wpm-v', 'wpm', (x) => x + ' KPM', () => {
+        invalidateMetrics();
+        applySpeedControl(); // sinkron slider HUD bawah
+      });
       bindRange('ps-speed', 'ps-speed-v', 'speed', (x) => '×' + x.toFixed(1));
+      bindRange('ps-lead', 'ps-lead-v', 'voiceLead', (x) => '+' + x + ' kata', () => {
+        applySpeedControl(); // sinkron slider HUD bawah
+        if (S.mode === 'voice') {
+          const disp = displayPos(S.provisionalPos);
+          highlight(disp);
+          if (Date.now() > S.manualScrollUntil) scrollToWord(disp);
+        }
+      });
       bindRange('ps-font', 'ps-font-v', 'fontSize', (x) => '×' + x.toFixed(2), applyTypography);
       bindRange('ps-lh', 'ps-lh-v', 'lineHeight', (x) => x.toFixed(2), applyTypography);
       elSettings.querySelector('#ps-theme').addEventListener('change', (e) => {
@@ -861,6 +917,24 @@
       applyTypography();
       hudWake();
     });
+    // Slider kecepatan/antisipasi di HUD bawah (makna mengikuti mode aktif)
+    elSpeed.addEventListener('input', () => {
+      const v = Number(elSpeed.value);
+      if (S.mode === 'voice') {
+        settings.voiceLead = v;
+        elSpeedV.textContent = '+' + v;
+        const disp = displayPos(S.provisionalPos); // efek langsung terlihat
+        highlight(disp);
+        if (Date.now() > S.manualScrollUntil) scrollToWord(disp);
+      } else {
+        settings.wpm = v;
+        elSpeedV.textContent = String(v);
+        invalidateMetrics(); // kecepatan timer berubah seketika
+      }
+      saveSettings(settings);
+      hudWake();
+    });
+    applySpeedControl();
     ['mousemove', 'pointerdown', 'touchstart', 'wheel'].forEach((ev) =>
       root.addEventListener(ev, () => hudWake(), { passive: true })
     );
@@ -884,6 +958,7 @@
       S.mode = 'timer';
       settings.mode = 'timer';
       banner('Mode Suara memerlukan Chrome/Edge. Mode Timer aktif. (Firefox/Safari: gulir otomatis + kontrol manual)', 6500);
+      applySpeedControl();
     }
     S._clock = setInterval(updateTime, 1000);
     hudWake();

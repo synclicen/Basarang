@@ -562,6 +562,41 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .p-time { font-size: var(--fs-xs); color: var(--silver-2); font-variant-numeric: tabular-nums; min-width: 76px; text-align: center; }
 .p-pct { font-size: var(--fs-xs); color: var(--silver-3); font-variant-numeric: tabular-nums; min-width: 46px; }
 
+/* Slider kecepatan/antisipasi di HUD bawah —
+   mode Ikut Suara: antisipasi blok kata (0–3); mode Timer: kecepatan KPM. */
+.p-speed { display: inline-flex; align-items: center; gap: 7px; padding: 0 4px; }
+.p-speed .icon { width: 15px; height: 15px; color: var(--silver-3); flex: none; }
+.p-speed-v { font-size: var(--fs-xs); color: var(--silver-2); font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+.p-speed input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: clamp(76px, 15vw, 150px); height: 28px;
+  background: transparent; cursor: pointer; margin: 0;
+}
+.p-speed input[type="range"]:focus-visible { outline: none; }
+.p-speed input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(232, 181, 77, 0.75), rgba(232, 181, 77, 0.22));
+  border: 1px solid rgba(232, 181, 77, 0.28);
+}
+.p-speed input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%; margin-top: -6px;
+  background: linear-gradient(135deg, #F5D488, #C8963E);
+  border: 1px solid #B98F35;
+  box-shadow: 0 0 10px rgba(232, 181, 77, 0.6);
+}
+.p-speed input[type="range"]::-moz-range-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(232, 181, 77, 0.75), rgba(232, 181, 77, 0.22));
+  border: 1px solid rgba(232, 181, 77, 0.28);
+}
+.p-speed input[type="range"]::-moz-range-thumb {
+  width: 15px; height: 15px; border-radius: 50%;
+  background: linear-gradient(135deg, #F5D488, #C8963E);
+  border: 1px solid #B98F35;
+  box-shadow: 0 0 10px rgba(232, 181, 77, 0.6);
+}
+
 /* Panel pengaturan prompter */
 .p-settings {
   position: absolute; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom)); transform: translateX(-50%);

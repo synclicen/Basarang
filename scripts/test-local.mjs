@@ -170,6 +170,11 @@ console.log('— Aset statis & kesehatan —');
       t.indexOf('id="p-content"') >= 0 && t.indexOf('id="p-guide"') > t.indexOf('id="p-content"')
     );
     check('garis panduan absolut 42%', (css.text || '').includes('.p-guide') && (css.text || '').includes('top: 42%'));
+    check(
+      'slider HUD bawah + antisipasi suara',
+      t.includes('id="p-speed"') && t.includes('voiceLead') && t.includes('displayPos') && t.includes('applySpeedControl')
+    );
+    check('CSS slider HUD bawah', (css.text || '').includes('.p-speed') && (css.text || '').includes('.p-speed input[type="range"]'));
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);
