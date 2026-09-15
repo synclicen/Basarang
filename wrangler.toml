@@ -6,7 +6,7 @@ compatibility_date = "2025-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "basarang"
-database_id = "FILL_ME_AFTER_D1_CREATE"
+database_id = "9a9cc621-ca46-44e0-84c8-dabb6e5c58b4"
 
 # Semua fitur berjalan di tier gratis Cloudflare:
 # - Workers Free: 100.000 request/hari (cukup untuk ribuan sesi)
