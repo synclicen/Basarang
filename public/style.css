@@ -241,10 +241,9 @@ label.field { display: block; margin-bottom: var(--sp-3); }
   background: linear-gradient(140deg, var(--bg-3), var(--bg-1));
   border: 1.5px solid var(--gold-2);
   box-shadow: var(--glow-gold);
-  font-family: var(--font-brand);
-  font-weight: 700; font-size: 18px;
   color: var(--gold-1);
 }
+.brand-mark .icon { width: 19px; height: 19px; }
 .brand-name { font-family: var(--font-brand); font-size: var(--fs-lg); font-weight: 700; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .brand-name em { font-style: normal; background: var(--grad-brand); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .brand-tail { font-weight: 600; }
@@ -350,13 +349,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .auth-card { width: min(420px, 100%); }
 .auth-hero { text-align: center; margin-bottom: var(--sp-4); }
 .auth-hero .mark {
-  width: 62px; height: 62px; margin: 0 auto var(--sp-3);
+  width: 54px; height: 54px;
   border-radius: 16px; display: grid; place-items: center;
   background: linear-gradient(140deg, var(--bg-3), var(--bg-1));
-  border: 2px solid var(--gold-2);
-  box-shadow: var(--glow-gold), 0 0 44px rgba(232, 181, 77, 0.25);
-  font-family: var(--font-brand); font-size: 34px; font-weight: 700; color: var(--gold-1);
 }
+.mark-trio { display: flex; justify-content: center; gap: 12px; margin-bottom: var(--sp-3); }
+.mark-trio .mark .icon { width: 24px; height: 24px; }
+.mark-gold { border: 2px solid var(--gold-2); box-shadow: var(--glow-gold), 0 0 30px rgba(232, 181, 77, 0.22); color: var(--gold-1); }
+.mark-purple { border: 2px solid var(--purple-1); box-shadow: var(--glow-purple), 0 0 30px rgba(108, 79, 196, 0.3); color: var(--purple-1); }
+.mark-silver { border: 2px solid var(--silver-2); box-shadow: var(--glow-silver), 0 0 26px rgba(230, 234, 242, 0.14); color: var(--silver-1); }
 .auth-hero h1 { margin: 0; font-family: var(--font-brand); font-size: clamp(19px, 5.5vw, 30px); line-height: 1.15; letter-spacing: 0.01em; }
 .auth-hero h1 em { font-style: normal; background: var(--grad-brand); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .auth-hero .tag { margin: 8px 0 0; color: var(--text-2); font-size: var(--fs-sm); }
@@ -523,9 +524,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 
 .p-title { font-size: var(--fs-sm); font-weight: 700; color: var(--silver-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
 .p-status { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--silver-3); }
-.p-status .mic { width: 8px; height: 8px; border-radius: 50%; background: var(--silver-3); }
-.p-status.listening .mic { background: var(--ok); box-shadow: 0 0 10px var(--ok); animation: pulse 1.2s infinite; }
-.p-status.rec .mic { background: var(--err); box-shadow: 0 0 10px var(--err); animation: pulse 1s infinite; }
+.p-status .mic { display: inline-flex; color: var(--silver-3); }
+.p-status .mic .icon { width: 12px; height: 12px; }
+.p-status.listening .mic { color: var(--ok); filter: drop-shadow(0 0 6px rgba(87, 217, 163, 0.85)); animation: pulse 1.2s infinite; }
+.p-status.rec .mic { color: var(--err); filter: drop-shadow(0 0 6px rgba(255, 122, 138, 0.85)); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
 .p-ctrl {
@@ -575,7 +577,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .p-set-row .lbl { color: var(--text-2); }
 .p-set-row input[type='range'] { width: 150px; accent-color: var(--gold-2); }
 .seg { display: inline-flex; border: 1px solid var(--stroke-strong); border-radius: 10px; overflow: hidden; }
-.seg button { border: none; background: transparent; color: var(--text-2); padding: 6px 12px; font: inherit; font-size: var(--fs-xs); font-weight: 700; cursor: pointer; }
+.seg button { border: none; background: transparent; color: var(--text-2); padding: 6px 12px; font: inherit; font-size: var(--fs-xs); font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.seg button .icon { width: 13px; height: 13px; flex: none; }
 .seg button.on { background: var(--grad-gold); color: #241503; }
 .lang-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .lang-chip { border: 1px solid var(--stroke-strong); background: transparent; color: var(--text-2); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: var(--fs-xs); cursor: pointer; }

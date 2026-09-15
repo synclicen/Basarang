@@ -65,6 +65,8 @@
   const ICON = {
     play: '<svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>',
     pause: '<svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>',
+    mic: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+    auto: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 17.5 6.5"/><path d="M17.5 3 18.4 5.1 20.5 6 18.4 6.9 17.5 9 16.6 6.9 14.5 6 16.6 5.1Z" stroke-width="1.6"/><path d="M21.5 12.5v2.2M20.4 13.6h2.2" stroke-width="1.6"/></svg>',
     gear: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h.01a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>',
     mirror: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M8 7 4 12l4 5M16 7l4 5-4 5"/></svg>',
     sync: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></svg>',
@@ -131,14 +133,14 @@
       <div class="p-hud-top">
         <button class="p-ctrl" id="p-exit" title="Keluar (Esc)">✕</button>
         <span class="p-title">${esc(script.title)}${projectName ? ' · ' + esc(projectName) : ''}</span>
-        <span class="p-status" id="p-status"><span class="mic"></span><span id="p-status-txt">Siap</span></span>
+        <span class="p-status" id="p-status"><span class="mic">${ICON.mic}</span><span id="p-status-txt">Siap</span></span>
         <span style="flex:1"></span>
         <button class="p-ctrl" id="p-rec" title="Rekam video (kamera)">${ICON.video}</button>
         <button class="p-ctrl" id="p-full" title="Layar penuh (F)">${ICON.full}</button>
         <button class="p-ctrl" id="p-set" title="Pengaturan (S)">${ICON.gear}</button>
       </div>
       <div class="p-hud-bot">
-        <button class="p-ctrl" id="p-resync" title="Sinkron ulang dari kata terlihat (R)">${ICON.sync}</button>
+        <button class="p-ctrl" id="p-resync" title="Sinkron otomatis ulang dari kata terlihat (R)">${ICON.auto}</button>
         <button class="p-ctrl" id="p-font-down" title="Perkecil teks (-)">${ICON.fontDown}</button>
         <button class="p-play" id="p-play" title="Mulai / jeda (Spasi)">${ICON.play}</button>
         <button class="p-ctrl" id="p-font-up" title="Perbesar teks (+)">${ICON.fontUp}</button>
@@ -592,8 +594,8 @@
     function renderSettingsPanel() {
       const seg = (mode) =>
         `<div class="seg">
-          <button type="button" data-mode="voice" class="${mode === 'voice' ? 'on' : ''}">Ikut Suara</button>
-          <button type="button" data-mode="timer" class="${mode === 'timer' ? 'on' : ''}">Timer</button>
+          <button type="button" data-mode="voice" class="${mode === 'voice' ? 'on' : ''}">${ICON.mic} Ikut Suara</button>
+          <button type="button" data-mode="timer" class="${mode === 'timer' ? 'on' : ''}">${ICON.auto} Timer</button>
         </div>`;
       elSettings.innerHTML = `
         <h4>Pengaturan Teleprompter</h4>
