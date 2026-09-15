@@ -175,6 +175,10 @@ console.log('— Aset statis & kesehatan —');
       t.includes('id="p-speed"') && t.includes('voiceLead') && t.includes('displayPos') && t.includes('applySpeedControl')
     );
     check('CSS slider HUD bawah', (css.text || '').includes('.p-speed') && (css.text || '').includes('.p-speed input[type="range"]'));
+    check(
+      'pengaturan blok kata emas',
+      t.includes('ps-wordblock') && t.includes('wordBlock') && (css.text || '').includes('.prompter.no-wordblock .p-word.cur')
+    );
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);

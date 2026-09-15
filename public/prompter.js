@@ -19,6 +19,7 @@
     mirrorX: false,
     mirrorY: false,
     guide: true,
+    wordBlock: true, // blok kata emas pada kata aktif — bisa disembunyikan bila mengganggu pembacaan
   };
   const LANGS = [
     ['id-ID', 'Indonesia'],
@@ -215,7 +216,7 @@
       elContent.style.lineHeight = String(settings.lineHeight);
       elContent.classList.toggle('mirror-x', settings.mirrorX);
       elContent.classList.toggle('mirror-y', settings.mirrorY);
-      root.className = 'prompter theme-' + settings.theme + (S.hudHidden ? ' p-hud-hidden' : '');
+      root.className = 'prompter theme-' + settings.theme + (S.hudHidden ? ' p-hud-hidden' : '') + (settings.wordBlock === false ? ' no-wordblock' : '');
       elGuide.classList.toggle('hidden', !settings.guide);
       invalidateMetrics();
     }
@@ -675,6 +676,9 @@
         <div class="p-set-row"><span class="lbl">Panduan baris</span>
           <button class="p-ctrl ${settings.guide ? 'on' : ''}" id="ps-guide" style="min-width:60px;height:34px">${settings.guide ? 'Aktif' : 'Mati'}</button>
         </div>
+        <div class="p-set-row"><span class="lbl">Blok kata emas</span>
+          <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="ps-wordblock" style="min-width:60px;height:34px">${settings.wordBlock ? 'Aktif' : 'Mati'}</button>
+        </div>
         <div class="p-set-row"><span class="lbl">Cermin horizontal (hood)</span>
           <button class="p-ctrl ${settings.mirrorX ? 'on' : ''}" id="ps-mx" style="min-width:60px;height:34px">${settings.mirrorX ? 'Aktif' : 'Mati'}</button>
         </div>
@@ -745,6 +749,7 @@
         });
       };
       bindToggle('ps-guide', 'guide', applyTypography);
+      bindToggle('ps-wordblock', 'wordBlock', applyTypography);
       bindToggle('ps-mx', 'mirrorX', applyTypography);
       bindToggle('ps-my', 'mirrorY', applyTypography);
     }

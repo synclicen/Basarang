@@ -484,6 +484,17 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
   background: linear-gradient(135deg, #F2F5FB, #C7CEDB);
   box-shadow: 0 0 26px rgba(230, 234, 242, 0.5);
 }
+/* Blok kata emas disembunyikan (pengaturan "Blok kata emas" = Mati):
+   kata aktif tampil polos sesuai warna tema — tanpa blok/gradasi/glow.
+   Kata lampau tetap meredup sebagai penanda progres yang lembut. */
+.prompter.no-wordblock .p-word.cur {
+  background: none;
+  box-shadow: none;
+  color: #D9DEE9;
+  opacity: 1;
+}
+.prompter.no-wordblock.theme-contrast .p-word.cur { color: #FFFFFF; }
+.prompter.no-wordblock.theme-silver .p-word.cur { color: #C7CEDB; text-shadow: 0 0 18px rgba(199, 206, 219, 0.28); }
 .p-para { margin: 0 0 0.65em; }
 
 /* Panduan baris baca — HARUS anak langsung .prompter (di luar .p-scroll)
