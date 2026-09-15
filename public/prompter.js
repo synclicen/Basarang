@@ -120,6 +120,7 @@
       lastTick: 0,
       wakeLock: null,
       recorder: { stream: null, mediaRecorder: null, chunks: [], url: null },
+      videoMode: 'live', // 'live' (kamera langsung) | 'replay' (putar hasil rekaman)
       hudTimer: null,
     };
 
@@ -164,7 +165,12 @@
       </div>
       <div class="p-settings hidden" id="p-settings"></div>
       <div class="p-count hidden" id="p-count"></div>
-      <video class="p-video hidden" id="p-video" autoplay playsinline muted></video>
+      <div class="p-video-box hidden" id="p-video-box">
+        <video id="p-video" autoplay playsinline muted></video>
+        <span class="p-video-dot hidden" id="p-video-dot"></span>
+        <button type="button" class="p-video-play hidden" id="p-video-play" title="Putar ulang hasil rekaman terakhir">${ICON.play} Hasil</button>
+        <button type="button" class="p-video-off" id="p-video-off" title="Matikan kamera">✕</button>
+      </div>
       <div class="p-banner hidden" id="p-banner"></div>`;
 
     const $ = (id) => root.querySelector('#' + id);
@@ -183,6 +189,9 @@
     const elSettings = $('p-settings');
     const elCount = $('p-count');
     const elVideo = $('p-video');
+    const elVideoBox = $('p-video-box');
+    const elVideoDot = $('p-video-dot');
+    const elVideoPlay = $('p-video-play');
     const elBanner = $('p-banner');
 
     document.body.appendChild(root);
@@ -588,18 +597,119 @@
       elTime.textContent = mm + ':' + ss;
     }
 
-    // ---------- Rekam video (MediaRecorder — gratis, bawaan browser) ----------
+    // ---------- Kamera & rekaman video (MediaRecorder — gratis, bawaan browser) ----------
+    // Footage TETAP TAMPIL dimanapun: sekali kamera dinyalakan, pratinjau hidup terus
+    // di atas semua lapisan (HUD, panel pengaturan, hitung mundur) — melewati ganti
+    // mode, ulang dari awal, maupun setelah rekaman berhenti (take ulang tanpa minta
+    // izin ulang). Hasil rekaman bisa diputar ulang lewat tombol "Hasil".
+
+    function playVideoEl() {
+      try {
+        const p = elVideo.play();
+        if (p && p.catch) p.catch(() => {});
+      } catch { /* abaikan */ }
+    }
+
+    // 'live' → kamera langsung; 'replay' → putar blob hasil rekaman terakhir (bersuara).
+    function setVideoMode(mode) {
+      if (mode === 'replay') {
+        if (!S.recorder.url) return;
+        S.videoMode = 'replay';
+        elVideo.srcObject = null;
+        elVideo.src = S.recorder.url;
+        elVideo.loop = true;
+        elVideo.muted = false; // dengarkan suara hasil rekaman
+        playVideoEl();
+        elVideoPlay.innerHTML = ICON.video + ' Langsung';
+        elVideoPlay.title = 'Kembali ke kamera langsung';
+      } else {
+        S.videoMode = 'live';
+        try { elVideo.pause(); } catch { /* abaikan */ }
+        elVideo.loop = false;
+        elVideo.removeAttribute('src');
+        elVideo.muted = true;
+        if (S.recorder.stream && S.recorder.stream.active) elVideo.srcObject = S.recorder.stream;
+        playVideoEl();
+        elVideoPlay.innerHTML = ICON.play + ' Hasil';
+        elVideoPlay.title = 'Putar ulang hasil rekaman terakhir';
+      }
+    }
+
+    function attachCamera(stream) {
+      S.recorder.stream = stream;
+      elVideoBox.classList.remove('hidden');
+      setVideoMode('live');
+    }
+
+    function stopCamera() {
+      const mr = S.recorder.mediaRecorder;
+      if (mr && mr.state === 'recording') mr.stop(); // hasil take tetap terunduh via onstop
+      if (S.recorder.stream) S.recorder.stream.getTracks().forEach((t) => t.stop());
+      S.recorder.stream = null;
+      S.recorder.mediaRecorder = null;
+      S.videoMode = 'live';
+      try { elVideo.pause(); } catch { /* abaikan */ }
+      elVideo.srcObject = null;
+      elVideo.removeAttribute('src');
+      elVideo.muted = true;
+      elVideoBox.classList.add('hidden');
+      elVideoDot.classList.add('hidden');
+      elVideoPlay.classList.add('hidden');
+      $('p-rec').classList.remove('on');
+      setStatus(S.playing && S.mode === 'voice' ? 'Mendengarkan…' : 'Siap', S.playing && S.mode === 'voice' ? 'listening' : '');
+      hudWake();
+    }
+
+    function startRecording(stream) {
+      if (S.videoMode === 'replay') setVideoMode('live'); // pastikan kamera langsung tampil
+      const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find(
+        (t) => MediaRecorder.isTypeSupported(t)
+      );
+      const mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 2500000 } : undefined);
+      S.recorder.mediaRecorder = mr;
+      S.recorder.chunks = [];
+      mr.ondataavailable = (e) => {
+        if (e.data && e.data.size) S.recorder.chunks.push(e.data);
+      };
+      mr.onstop = () => {
+        const blob = new Blob(S.recorder.chunks, { type: mr.mimeType || 'video/webm' });
+        if (S.recorder.url) URL.revokeObjectURL(S.recorder.url);
+        S.recorder.url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = S.recorder.url;
+        a.download = 'basarang-' + script.id + '-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.webm';
+        a.click();
+        elVideoDot.classList.add('hidden');
+        $('p-rec').classList.remove('on');
+        // Kamera TIDAK dimatikan di sini — footage tetap tampil untuk take berikutnya.
+        if (S.recorder.stream && S.recorder.stream.active) {
+          elVideoPlay.classList.remove('hidden');
+          setStatus(S.playing && S.mode === 'voice' ? 'Mendengarkan…' : 'Siap', S.playing && S.mode === 'voice' ? 'listening' : '');
+          banner('Rekaman selesai — berhasil diunduh (' + (blob.size / 1048576).toFixed(1) + ' MB). Kamera tetap tampil: klik kamera untuk rekam lagi, tombol "Hasil" untuk menonton.', 6000);
+        } else {
+          banner('Rekaman selesai — berhasil diunduh (' + (blob.size / 1048576).toFixed(1) + ' MB).', 5000);
+        }
+      };
+      mr.start(1000);
+      $('p-rec').classList.add('on');
+      elVideoDot.classList.remove('hidden');
+      elVideoPlay.classList.add('hidden'); // saat merekam, tombol putar disembunyikan
+      setStatus('Merekam…', 'rec');
+      banner('Merekam video + suara. Klik tombol kamera lagi untuk berhenti & mengunduh.', 4000);
+    }
 
     async function toggleRecord() {
-      const btn = $('p-rec');
       if (S.recorder.mediaRecorder && S.recorder.mediaRecorder.state === 'recording') {
         S.recorder.mediaRecorder.stop();
-        btn.classList.remove('on');
-        setStatus(S.playing && S.mode === 'voice' ? 'Mendengarkan…' : 'Siap', S.playing && S.mode === 'voice' ? 'listening' : '');
-        return;
+        return; // onstop menangani unduhan — kamera tetap hidup
       }
       if (!navigator.mediaDevices || !window.MediaRecorder) {
         banner('Perekaman video tidak didukung peramban ini.', 4000);
+        return;
+      }
+      // Kamera sudah hidup → langsung rekam ulang (tanpa minta izin lagi)
+      if (S.recorder.stream && S.recorder.stream.active) {
+        startRecording(S.recorder.stream);
         return;
       }
       try {
@@ -607,33 +717,12 @@
           video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
           audio: true,
         });
-        elVideo.srcObject = stream;
-        elVideo.classList.remove('hidden');
-        const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'].find(
-          (t) => MediaRecorder.isTypeSupported(t)
-        );
-        const mr = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 2500000 } : undefined);
-        S.recorder = { stream, mediaRecorder: mr, chunks: [], url: S.recorder.url };
-        mr.ondataavailable = (e) => {
-          if (e.data && e.data.size) S.recorder.chunks.push(e.data);
-        };
-        mr.onstop = () => {
-          const blob = new Blob(S.recorder.chunks, { type: mr.mimeType || 'video/webm' });
-          if (S.recorder.url) URL.revokeObjectURL(S.recorder.url);
-          S.recorder.url = URL.createObjectURL(blob);
-          stream.getTracks().forEach((t) => t.stop());
-          elVideo.classList.add('hidden');
-          elVideo.srcObject = null;
-          const a = document.createElement('a');
-          a.href = S.recorder.url;
-          a.download = 'basarang-' + script.id + '-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.webm';
-          a.click();
-          banner('Rekaman selesai — berhasil diunduh (' + (blob.size / 1048576).toFixed(1) + ' MB).', 5000);
-        };
-        mr.start(1000);
-        btn.classList.add('on');
-        setStatus('Merekam…', 'rec');
-        banner('Merekam video + suara. Klik tombol kamera lagi untuk berhenti & mengunduh.', 4000);
+        attachCamera(stream);
+        // Kamera dicabut sistem (mis. perangkat lepas) → matikan pratinjau dengan rapi
+        stream.getTracks().forEach((t) => t.addEventListener('ended', () => {
+          if (S.recorder.stream === stream) stopCamera();
+        }));
+        startRecording(stream);
       } catch (err) {
         banner('Tidak dapat mengakses kamera/mikrofon: ' + (err && err.name === 'NotAllowedError' ? 'izin ditolak' : 'perangkat tidak tersedia'), 5000);
       }
@@ -965,6 +1054,7 @@
       try {
         if (S.recorder.mediaRecorder && S.recorder.mediaRecorder.state === 'recording') S.recorder.mediaRecorder.stop();
         if (S.recorder.stream) S.recorder.stream.getTracks().forEach((t) => t.stop());
+        try { elVideo.pause(); } catch { /* abaikan */ }
         if (S.recorder.url) setTimeout(() => URL.revokeObjectURL(S.recorder.url), 4000);
       } catch {
         /* abaikan */
@@ -988,6 +1078,9 @@
     $('p-set').addEventListener('click', toggleSettings);
     $('p-full').addEventListener('click', toggleFullscreen);
     $('p-rec').addEventListener('click', toggleRecord);
+    // Footage: tombol kecil pada kotak video — putar hasil / kembali langsung, & matikan kamera
+    $('p-video-off').addEventListener('click', stopCamera);
+    $('p-video-play').addEventListener('click', () => setVideoMode(S.videoMode === 'replay' ? 'live' : 'replay'));
     $('p-resync').addEventListener('click', resyncFromView);
     $('p-restart').addEventListener('click', restartFromTop);
     $('p-wordblock').addEventListener('click', toggleWordBlock);

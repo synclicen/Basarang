@@ -204,6 +204,18 @@ console.log('— Aset statis & kesehatan —');
       'pintasan T ganti mode terdaftar',
       t.includes("case 't':") && t.includes('T ganti mode gulir')
     );
+    check(
+      'footage tetap tampil: kamera tak dimatikan saat rekaman berhenti',
+      t.includes('function stopCamera') && t.includes('function setVideoMode') && t.includes('function attachCamera') && !t.includes("elVideo.classList.add('hidden')")
+    );
+    check(
+      'kotak footage: tombol hasil/langsung, matikan kamera, titik REC',
+      t.includes('id="p-video-box"') && t.includes('id="p-video-off"') && t.includes('id="p-video-play"') && t.includes('id="p-video-dot"') && t.includes("S.videoMode === 'replay' ? 'live' : 'replay'")
+    );
+    check(
+      'CSS footage di atas semua lapisan (z-index 21)',
+      (css.text || '').includes('.p-video-box') && (css.text || '').includes('z-index: 21') && (css.text || '').includes('.p-video-dot') && (css.text || '').includes('.p-video-off')
+    );
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);
