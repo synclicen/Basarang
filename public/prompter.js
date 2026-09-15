@@ -20,6 +20,7 @@
     mirrorY: false,
     guide: true,
     wordBlock: true, // blok kata emas pada kata aktif — bisa disembunyikan bila mengganggu pembacaan
+    align: 'left', // rata teks naskah: 'left' | 'center' | 'right' | 'justify'
   };
   const LANGS = [
     ['id-ID', 'Indonesia'],
@@ -79,7 +80,16 @@
     gauge: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17a8 8 0 0 1 16 0"/><path d="M12 17l4-5"/><circle cx="12" cy="17" r="1.2" fill="currentColor" stroke="none"/></svg>',
     block: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.5h8"/><rect x="5" y="9" width="14" height="7" rx="2.5"/></svg>',
     restart: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5h14"/><path d="M12 20.5V9.5"/><path d="M8.5 12.5 12 9l3.5 3.5"/></svg>',
+    alignLeft: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 10h12M3 14h18M3 18h12"/></svg>',
+    alignCenter: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M6 10h12M3 14h18M6 18h12"/></svg>',
+    alignRight: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M9 10h12M3 14h18M9 18h12"/></svg>',
+    alignJustify: '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 10h18M3 14h18M3 18h18"/></svg>',
   };
+
+  // Rata teks naskah — urutan siklus tombol HUD, label, dan ikon tiap nilai.
+  const ALIGN_ORDER = ['left', 'center', 'right', 'justify'];
+  const ALIGN_LABELS = { left: 'Rata kiri', center: 'Rata tengah', right: 'Rata kanan', justify: 'Rata kiri-kanan' };
+  const ALIGN_ICONS = { left: ICON.alignLeft, center: ICON.alignCenter, right: ICON.alignRight, justify: ICON.alignJustify };
 
   window.Prompter = {
     isActive: () => !!active,
@@ -153,6 +163,7 @@
         <button class="p-ctrl" id="p-font-up" title="Perbesar teks (+)">${ICON.fontUp}</button>
         <button class="p-ctrl" id="p-mirror" title="Cermin (M)">${ICON.mirror}</button>
         <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="p-wordblock" title="Blok kata emas — tampil/sembunyi (B)">${ICON.block}</button>
+        <button class="p-ctrl" id="p-align" title="${ALIGN_LABELS[settings.align] || ALIGN_LABELS.left} — klik untuk ganti rata teks (A)">${ALIGN_ICONS[settings.align] || ALIGN_ICONS.left}</button>
         <div class="seg p-mode" id="p-mode" role="group" aria-label="Mode gulir">
           <button type="button" data-mode="voice" class="${S.mode === 'voice' ? 'on' : ''}" title="Ikut Suara — naskah mengikuti ucapan (T)">${ICON.mic}<span class="txt">Suara</span></button>
           <button type="button" data-mode="timer" class="${S.mode === 'timer' ? 'on' : ''}" title="Timer — gulir otomatis sesuai kecepatan baca (T)">${ICON.auto}<span class="txt">Timer</span></button>
@@ -231,6 +242,7 @@
     function applyTypography() {
       elContent.style.fontSize = `calc(clamp(26px, 5.4vw, 56px) * ${settings.fontSize})`;
       elContent.style.lineHeight = String(settings.lineHeight);
+      elContent.style.textAlign = settings.align || 'left';
       elContent.classList.toggle('mirror-x', settings.mirrorX);
       elContent.classList.toggle('mirror-y', settings.mirrorY);
       root.className = 'prompter theme-' + settings.theme + (S.hudHidden ? ' p-hud-hidden' : '') + (settings.wordBlock === false ? ' no-wordblock' : '');
@@ -764,6 +776,14 @@
           <span class="row" style="gap:8px"><input type="range" id="ps-lh" min="1.2" max="2" step="0.05" value="${settings.lineHeight}">
           <b id="ps-lh-v" style="min-width:52px;font-size:var(--fs-xs)">${settings.lineHeight.toFixed(2)}</b></span>
         </div>
+        <div class="p-set-row"><span class="lbl">Rata teks</span>
+          <div class="seg" id="ps-align">
+            <button type="button" data-align="left" class="${(settings.align || 'left') === 'left' ? 'on' : ''}" title="Rata kiri">${ICON.alignLeft}<span class="txt">Kiri</span></button>
+            <button type="button" data-align="center" class="${settings.align === 'center' ? 'on' : ''}" title="Rata tengah">${ICON.alignCenter}<span class="txt">Tengah</span></button>
+            <button type="button" data-align="right" class="${settings.align === 'right' ? 'on' : ''}" title="Rata kanan">${ICON.alignRight}<span class="txt">Kanan</span></button>
+            <button type="button" data-align="justify" class="${settings.align === 'justify' ? 'on' : ''}" title="Rata kiri-kanan">${ICON.alignJustify}<span class="txt">Kiri-kanan</span></button>
+          </div>
+        </div>
         <div class="p-set-row"><span class="lbl">Tema</span>
           <select class="select" id="ps-theme" style="width:170px;min-height:34px">
             <option value="gold" ${settings.theme === 'gold' ? 'selected' : ''}>Emas Klasik</option>
@@ -783,10 +803,13 @@
         <div class="p-set-row"><span class="lbl">Cermin vertikal</span>
           <button class="p-ctrl ${settings.mirrorY ? 'on' : ''}" id="ps-my" style="min-width:60px;height:34px">${settings.mirrorY ? 'Aktif' : 'Mati'}</button>
         </div>
-        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · B blok kata · T ganti mode gulir · R sinkron ulang · Home ulang dari awal · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat.</p>`;
+        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · B blok kata · T ganti mode gulir · A rata teks · R sinkron ulang · Home ulang dari awal · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat.</p>`;
 
       elSettings.querySelectorAll('[data-mode]').forEach((b) =>
         b.addEventListener('click', () => { setMode(b.dataset.mode); })
+      );
+      elSettings.querySelectorAll('[data-align]').forEach((b) =>
+        b.addEventListener('click', () => { setAlign(b.dataset.align); })
       );
       elSettings.querySelector('#ps-lang').addEventListener('change', (e) => {
         settings.lang = e.target.value;
@@ -944,6 +967,32 @@
       hudWake();
     }
 
+    // Rata teks — tombol siklus di HUD bawah (pintasan A) dan segmen 4 opsi di
+    // panel pengaturan; satu pintu setAlign() agar keduanya selalu tersinkron.
+    function syncAlignButtons() {
+      const hud = $('p-align');
+      if (hud) {
+        hud.innerHTML = ALIGN_ICONS[settings.align] || ALIGN_ICONS.left;
+        hud.title = ALIGN_LABELS[settings.align] + ' — klik untuk ganti rata teks (A)';
+      }
+      elSettings.querySelectorAll('[data-align]').forEach((b) =>
+        b.classList.toggle('on', b.dataset.align === (settings.align || 'left'))
+      );
+    }
+    function setAlign(v) {
+      if (!ALIGN_LABELS[v]) return;
+      settings.align = v;
+      saveSettings(settings);
+      applyTypography();
+      syncAlignButtons();
+      hudWake();
+    }
+    function cycleAlign() {
+      const i = ALIGN_ORDER.indexOf(settings.align || 'left');
+      setAlign(ALIGN_ORDER[(i + 1) % ALIGN_ORDER.length]);
+      toastBanner('Rata teks: ' + ALIGN_LABELS[settings.align]);
+    }
+
     function toggleFullscreen() {
       if (!document.fullscreenElement) {
         root.requestFullscreen && root.requestFullscreen().catch(() => {});
@@ -1003,6 +1052,10 @@
         case 't':
         case 'T':
           setMode(S.mode === 'voice' ? 'timer' : 'voice');
+          break;
+        case 'a':
+        case 'A':
+          cycleAlign();
           break;
         case 'Home':
         case '0':
@@ -1085,6 +1138,7 @@
     $('p-resync').addEventListener('click', resyncFromView);
     $('p-restart').addEventListener('click', restartFromTop);
     $('p-wordblock').addEventListener('click', toggleWordBlock);
+    $('p-align').addEventListener('click', cycleAlign);
     // Pemilih mode gulir di HUD bawah
     $('p-mode').querySelectorAll('[data-mode]').forEach((b) =>
       b.addEventListener('click', () => { setMode(b.dataset.mode); })
@@ -1136,6 +1190,7 @@
     renderWords();
     renderSettingsPanel();
     applyTypography();
+    syncAlignButtons(); // tombol HUD & panel pengaturan mengikuti rata teks tersimpan
     highlight(0);
     requestWakeLock();
     if (!supportedVoice()) {

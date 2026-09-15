@@ -744,6 +744,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
   .userchip .meta { display: none; }
   .p-mode button .txt { display: none; }
   .p-mode button { padding: 0 6px; }
+  /* Segmen rata teks di panel pengaturan: ikon-saja agar muat di layar sempit */
+  #ps-align .txt { display: none; }
+  #ps-align button { padding: 0 7px; }
   /* Kontrol satu baris di ponsel: elemen sekunder disembunyikan agar HUD
      tidak membungkus dua baris (semua tetap tersedia via panel pengaturan). */
   .p-hud-bot .p-time, .p-hud-bot .p-pct,

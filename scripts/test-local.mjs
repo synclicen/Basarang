@@ -250,6 +250,14 @@ console.log('— Aset statis & kesehatan —');
       'auto-hide HUD bawah meluncur ke bawah (translateY 100%)',
       (css.text || '').includes('.p-hud-hidden .p-hud-bot') && (css.text || '').includes('translateY(100%)')
     );
+    check(
+      'rata teks: tombol siklus HUD + segmen 4 opsi panel',
+      t.includes('id="p-align"') && t.includes('data-align="left"') && t.includes('data-align="center"') && t.includes('data-align="right"') && t.includes('data-align="justify"') && t.includes("align: 'left'")
+    );
+    check(
+      'rata teks: setAlign satu pintu, siklus pintasan A, tersinkron',
+      t.includes('function setAlign') && t.includes('function cycleAlign') && t.includes('function syncAlignButtons') && t.includes("case 'a':") && t.includes('elContent.style.textAlign') && (css.text || '').includes('#ps-align .txt { display: none; }')
+    );
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);
