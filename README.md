@@ -5,8 +5,6 @@
 > @2026 - Made by Fajrianor
 > Pusat Humas dan Keterbukaan Informasi
 > UIN Antasari Banjarmasin
->
-> UNDER MY RESPONSIBILITY!
 
 ## Fitur
 

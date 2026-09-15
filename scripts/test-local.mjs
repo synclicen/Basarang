@@ -151,7 +151,7 @@ console.log('— Aset statis & kesehatan —');
   check('health ok', r.status === 200 && r.data.ok === true && r.data.data.name.includes('Basarang'));
   const page = await req(null, 'GET', '/');
   const html = page.text || '';
-  check('root menyajikan HTML', page.status === 200 && html.includes('Basarang') && html.includes('UNDER MY RESPONSIBILITY'));
+  check('root menyajikan HTML', page.status === 200 && html.includes('Basarang') && !html.includes('UNDER MY RESPONSIBILITY'));
   check('footer lengkap', html.includes('@2026 - Made by Fajrianor') && html.includes('UIN Antasari Banjarmasin') && html.includes('Pusat Humas dan Keterbukaan Informasi'));
   const css = await req(null, 'GET', '/style.css');
   check('css tersaji', css.status === 200 && (css.text || '').includes('--gold-2'));
