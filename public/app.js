@@ -553,24 +553,45 @@
               : p.my_role === 'member'
                 ? '<span class="pill pill-purple">Anggota</span>'
                 : '<span class="pill">Pengawasan</span>';
+          // Hapus langsung dari kartu: pemilik proyek atau super admin.
+          const canDel = p.my_role === 'owner' || state.user.role === 'super_admin';
           return `
-        <a class="card card-hover proj-card" href="#/project/${p.id}">
-          <div class="top">
-            <h3>${esc(p.name)}</h3>
-            ${p.status === 'archived' ? '<span class="pill">Arsip</span>' : ''}
-          </div>
-          <p class="desc">${esc(p.description || 'Tanpa deskripsi.')}</p>
-          <div class="meta">
-            ${rolePill}
-            <span>${p.script_count} naskah</span>
-            <span>·</span>
-            <span>${p.member_count} anggota</span>
-            <span>·</span>
-            <span>${esc(fmtRel(p.created_at))}</span>
-          </div>
-        </a>`;
+        <div class="proj-card-wrap">
+          <a class="card card-hover proj-card" href="#/project/${p.id}">
+            <div class="top">
+              <h3>${esc(p.name)}</h3>
+              ${p.status === 'archived' ? '<span class="pill">Arsip</span>' : ''}
+            </div>
+            <p class="desc">${esc(p.description || 'Tanpa deskripsi.')}</p>
+            <div class="meta">
+              ${rolePill}
+              <span>${p.script_count} naskah</span>
+              <span>·</span>
+              <span>${p.member_count} anggota</span>
+              <span>·</span>
+              <span>${esc(fmtRel(p.created_at))}</span>
+            </div>
+          </a>
+          ${canDel ? `<button class="btn btn-danger proj-del" data-pdel="${p.id}" title="Hapus proyek ${esc(p.name)}">${I.trash} Hapus</button>` : ''}
+        </div>`;
         })
         .join('');
+      // Hapus proyek langsung dari kartu dashboard — konfirmasi dulu, lalu muat ulang daftar.
+      wrap.querySelectorAll('[data-pdel]').forEach((b) =>
+        b.addEventListener('click', async () => {
+          const p = projects.find((x) => String(x.id) === b.dataset.pdel);
+          if (!p) return;
+          const yes = await confirmDialog('Hapus proyek?', `Proyek "${p.name}" beserta seluruh naskah dan anggotanya akan dihapus permanen.`);
+          if (!yes) return;
+          try {
+            await api('/projects/' + p.id, { method: 'DELETE' });
+            toast('Proyek dihapus.', 'ok');
+            viewDashboard();
+          } catch (err) {
+            toast(err.message, 'err');
+          }
+        })
+      );
     } catch (err) {
       wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><h3>Gagal memuat</h3><p>${esc(err.message)}</p></div>`;
     }
@@ -667,7 +688,7 @@
         <div class="row">
           ${canAddScript ? `<button class="btn btn-gold" id="btn-new-script">${I.plus} Naskah Baru</button>` : ''}
           ${can_manage ? `<button class="btn btn-ghost" id="btn-edit-proj">${I.edit} Ubah</button>
-          <button class="btn btn-danger" id="btn-del-proj">${I.trash}</button>` : ''}
+          <button class="btn btn-danger" id="btn-del-proj" title="Hapus proyek ini permanen">${I.trash} Hapus</button>` : ''}
         </div>
       </div>
       <div class="split">
@@ -725,8 +746,8 @@
           </div>
           <div class="actions">
             <a class="btn btn-gold btn-sm" href="#/prompter/${s.id}">${I.prompter} Teleprompter</a>
-            <button class="btn btn-ghost btn-sm" data-edit="${s.id}">${I.edit}</button>
-            ${can_manage ? `<button class="btn btn-danger btn-sm" data-del="${s.id}" title="Hapus naskah">${I.trash}</button>` : ''}
+            <button class="btn btn-ghost btn-sm" data-edit="${s.id}" title="Ubah naskah">${I.edit} Ubah</button>
+            ${can_manage ? `<button class="btn btn-danger btn-sm" data-del="${s.id}" title="Hapus naskah">${I.trash} Hapus</button>` : ''}
           </div>
         </div>`;
         })
@@ -1073,7 +1094,7 @@
           <td class="muted">${esc(fmtRel(u.last_login_at))}</td>
           <td style="white-space:nowrap">
             <button class="btn btn-ghost btn-sm" data-uid="${u.id}" title="Ubah">${I.edit}</button>
-            ${u.id !== state.user.id ? `<button class="btn btn-danger btn-sm" data-uid-del="${u.id}" title="Hapus">${I.trash}</button>` : ''}
+            ${u.id !== state.user.id ? `<button class="btn btn-danger btn-sm" data-uid-del="${u.id}" title="Hapus pengguna">${I.trash} Hapus</button>` : ''}
           </td>
         </tr>`
           )

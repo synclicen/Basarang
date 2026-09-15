@@ -189,6 +189,14 @@ console.log('— Aset statis & kesehatan —');
       'tombol hapus naskah hanya untuk pengelola (selaras API 403 anggota)',
       !a.includes('can_manage || s.created_by === state.user.id) ? `<button class="btn btn-danger')
     );
+    check(
+      'tombol hapus berlabel teks "Hapus" (bukan ikon-saja yang mudah terlewat)',
+      a.includes('id="btn-del-proj" title="Hapus proyek ini permanen">${I.trash} Hapus</button>') && a.includes('data-del="${s.id}" title="Hapus naskah">${I.trash} Hapus</button>') && a.includes('data-uid-del="${u.id}" title="Hapus pengguna">${I.trash} Hapus</button>')
+    );
+    check(
+      'dashboard: tombol hapus proyek langsung di kartu (pemilik/super admin)',
+      a.includes('data-pdel="${p.id}"') && a.includes("wrap.querySelectorAll('[data-pdel]')") && a.includes('proj-card-wrap') && (css.text || '').includes('.proj-del { position: absolute; top: 12px; right: 12px;')
+    );
   }
   const al = await req(null, 'GET', '/align.js');
   check('align.js tersaji', al.status === 200);
