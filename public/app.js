@@ -739,7 +739,9 @@
     } else {
       grid.innerHTML = scripts
         .map((s) => {
-          const w = wordCount(s.content);
+          // Jumlah kata sudah dihitung server saat simpan (kolom word_count) —
+          // daftar naskah TIDAK lagi memuat isi penuh (bisa puluhan MB untuk ratusan naskah).
+          const w = Number(s.word_count) || 0;
           return `
         <div class="card card-hover script-card">
           <h4>${esc(s.title)}</h4>
@@ -756,9 +758,16 @@
         })
         .join('');
       grid.querySelectorAll('[data-edit]').forEach((b) =>
-        b.addEventListener('click', () => {
+        b.addEventListener('click', async () => {
           const s = scripts.find((x) => String(x.id) === b.dataset.edit);
-          scriptEditor(project, s);
+          if (!s) return;
+          // Isi naskah diambil on-demand saat editor dibuka (daftar hanya metadata).
+          try {
+            const d = await api('/scripts/' + s.id);
+            scriptEditor(project, d.script);
+          } catch (err) {
+            toast('Tidak dapat membuka naskah: ' + err.message, 'err');
+          }
         })
       );
       grid.querySelectorAll('[data-del]').forEach((b) =>
@@ -927,12 +936,14 @@
         // dan setelah simpan pertama (POST) semua simpan berikutnya jadi PUT — mencegah naskah ganda.
         let saveChain = Promise.resolve();
 
-        const updateStats = () => {
+        // Hitung kata di-debounce: regex atas naskah 100 ribu karakter di setiap
+        // ketikan membuat editor tersendat — cukup per jeda mengetik (350 ms).
+        const updateStats = debounce(() => {
           const w = wordCount(ta.value);
           const wpmv = Number(form.words_per_minute.value) || 140;
           stats.textContent = `${w} kata · ~${estMinutes(w, wpmv)}`;
-        };
-        updateStats();
+        }, 350);
+        updateStats.flush();
         ta.addEventListener('input', () => {
           dirty = true;
           updateStats();

@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS scripts (
   title TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '',
   words_per_minute INTEGER NOT NULL DEFAULT 140,
+  word_count INTEGER,
   created_by INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -64,10 +65,45 @@ CREATE INDEX IF NOT EXISTS idx_members_user ON project_members(user_id);
 
 let schemaReady = false;
 
+// Hitung kata di sisi server — regex sama persis dengan wordCount() di app.js
+// agar statistik kartu naskah konsisten dengan editor. Dipakai juga backfill migrasi.
+export function countWords(text) {
+  const m = String(text || '').trim().match(/[\p{L}\p{N}'’-]+/gu);
+  return m ? m.length : 0;
+}
+
 export async function ensureSchema(db) {
   if (schemaReady) return;
   const statements = SCHEMA_SQL.match(/[^;]+;/g) || [SCHEMA_SQL];
   await db.batch(statements.map((sql) => db.prepare(sql)));
+  // Migrasi v2 — kolom word_count: daftar naskah kini metadata-saja (tanpa memuat
+  // isi puluhan MB saat sebuah proyek memiliki ratusan naskah); jumlah kata disimpan
+  // saat simpan, bukan dihitung ulang tiap halaman.
+  try {
+    await db.prepare('ALTER TABLE scripts ADD COLUMN word_count INTEGER').run();
+  } catch (e) {
+    if (!/duplicate column/i.test(String(e && e.message))) throw e;
+  }
+  // Backfill baris lama secara bertahap (chunk 100) agar CPU isolate tetap kecil;
+  // isolate berikutnya melanjutkan sampai habis, lalu bendera app_meta dipasang
+  // sehingga cold start selanjutnya hanya membaca 1 baris (bukan memindai tabel).
+  const flag = await db.prepare("SELECT value FROM app_meta WHERE key = 'wordcount_backfill'").first();
+  if (!flag) {
+    for (let i = 0; i < 20; i++) {
+      const rows = await db.prepare('SELECT id, content FROM scripts WHERE word_count IS NULL LIMIT 100').all();
+      const list = rows.results || [];
+      if (!list.length) {
+        await db
+          .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('wordcount_backfill', ?)")
+          .bind(nowIso())
+          .run();
+        break;
+      }
+      await db.batch(
+        list.map((r) => db.prepare('UPDATE scripts SET word_count = ? WHERE id = ?').bind(countWords(r.content), r.id))
+      );
+    }
+  }
   schemaReady = true;
 }
 

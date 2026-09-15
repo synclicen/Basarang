@@ -1,11 +1,14 @@
 // auth.js — autentikasi berbasis D1 (sinkron lintas perangkat)
-// - PBKDF2-SHA256 25.000 iterasi (~5ms CPU, aman untuk batas 10ms Workers Free)
-//   dikombinasikan rate-limit login 10 percobaan / 15 menit per username.
+// - PBKDF2-SHA256 15.000 iterasi untuk hash BARU (~3 ms CPU per derivasi).
+//   Endpoint ganti sandi mem derivasi dua kali (verifikasi lama + hash baru);
+//   pada 25.000 iterasi itu ≈ 11 ms — melampaui batas CPU 10 ms Workers Free.
+//   15.000 iterasi menjaga kedua operasi ~6,5 ms. Hash lama tetap sah:
+//   jumlah iterasi tersimpan di dalam format hash dan dipakai saat verifikasi.
 // - Sesi: token acak 256-bit disimpan di D1 (bukan localStorage), cookie HttpOnly,
 //   sehingga login di perangkat mana pun langsung sinkron.
 // - Format hash: pbkdf2:<iter>:<salt-hex>:<hash-hex> (iterasi bisa dinaikkan nanti).
 
-const PBKDF2_ITERATIONS = 25000;
+export const PBKDF2_ITERATIONS = 15000;
 export const SESSION_COOKIE = 'basarang_session';
 export const SESSION_TTL_SEC = 30 * 24 * 3600; // 30 hari
 const LOGIN_WINDOW_SEC = 15 * 60; // 15 menit

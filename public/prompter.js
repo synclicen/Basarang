@@ -209,6 +209,14 @@
     document.body.appendChild(root);
     document.body.style.overflow = 'hidden';
 
+    // Delegasi klik kata: SATU listener di wadah untuk semua kata — naskah panjang
+    // (belasan ribu kata) tidak lagi memasang listener per kata (boros memori & waktu).
+    elContent.addEventListener('click', (e) => {
+      const t = e.target instanceof Element ? e.target.closest('.p-word') : null;
+      if (!t) return;
+      jumpTo(Number(t.dataset.i));
+    });
+
     // ---------- Render kata ----------
 
     function renderWords() {
@@ -225,6 +233,7 @@
           const span = document.createElement('span');
           span.className = 'p-word';
           span.textContent = tok;
+          span.dataset.i = String(words.length);
           p.appendChild(span);
           words.push({ raw: tok, norm: A().normalizeWord(tok), el: span });
         });
@@ -232,12 +241,6 @@
       }
       S.words = words;
       S.norms = words.map((w) => w.norm); // cache — dihitung sekali, bukan tiap event suara
-      // klik kata = lompat
-      words.forEach((w, idx) => {
-        w.el.addEventListener('click', () => {
-          jumpTo(idx);
-        });
-      });
     }
 
     function applyTypography() {

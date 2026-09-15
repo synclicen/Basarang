@@ -15,9 +15,10 @@ cd "$(dirname "$0")/.."
 echo "→ Build aset SPA…"
 node scripts/build-assets.mjs
 
-echo "→ Uji (unit + e2e)…"
+echo "→ Uji (unit + e2e + migrasi)…"
 node scripts/test-align.mjs > /dev/null && echo "  ✓ unit test algoritma"
-node scripts/test-local.mjs > /dev/null && echo "  ✓ e2e worker (111 asersi)"
+node scripts/test-local.mjs > /dev/null && echo "  ✓ e2e worker (119 asersi)"
+node scripts/test-migrate.mjs > /dev/null && echo "  ✓ e2e migrasi DB lama (10 asersi)"
 
 echo "→ Deploy…"
 npx -y wrangler@latest deploy

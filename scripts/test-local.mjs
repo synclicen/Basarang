@@ -6,6 +6,8 @@ import { rmSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import worker from '../src/index.js';
+import { SCHEMA_SQL } from '../src/db.js';
+import { PBKDF2_ITERATIONS } from '../src/auth.js';
 
 // ---------- Mock D1 (meniru API resmi: prepare().bind().first()/run()/all(), batch, exec) ----------
 
@@ -304,6 +306,23 @@ console.log('— Aset statis & kesehatan —');
       'panel pengaturan: tombol Tutup (ps-close) di header panel',
       t.includes('id="ps-close"') && t.includes('ICON.close') && t.includes("querySelector('#ps-close')") && (css.text || '').includes('.p-set-head')
     );
+    // Regresi skala & stabilitas (audit ratusan naskah):
+    check(
+      'prompter: delegasi klik kata — satu listener, bukan per kata',
+      t.includes("elContent.addEventListener('click'") && t.includes('span.dataset.i') && !t.includes('w.el.addEventListener(\'click\')')
+    );
+    check(
+      'editor: hitung kata di-debounce (naskah panjang tetap responsif)',
+      jsText.includes('const updateStats = debounce(') && jsText.includes('updateStats.flush()')
+    );
+    check(
+      'frontend: kartu pakai word_count server & editor fetch on-demand',
+      jsText.includes('Number(s.word_count) || 0') && jsText.includes("api('/scripts/' + s.id)") && jsText.includes('scriptEditor(project, d.script)')
+    );
+    check(
+      'skema & auth: kolom word_count + PBKDF2 di bawah batas CPU ganti sandi',
+      SCHEMA_SQL.includes('word_count INTEGER') && PBKDF2_ITERATIONS <= 16000 && PBKDF2_ITERATIONS >= 10000
+    );
   }
   const fav = await req(null, 'GET', '/favicon.svg');
   check('favicon tersaji', fav.status === 200);
@@ -428,6 +447,30 @@ console.log('— Proyek & naskah —');
     body: { content: 'Naskah revisi: Assalamualaikum Bapak Ibu sekalian.', title: 'Sambutan Rektor (revisi)' },
   });
   check('naskah bisa diedit (autosave)', put.status === 200 && put.data.data.script.title.includes('revisi'));
+
+  // Regresi skala ratusan naskah: daftar proyek & respons simpan = metadata-saja
+  // (tanpa kolom content — dulu puluhan MB JSON per buka halaman); jumlah kata
+  // disimpan server-side di kolom word_count.
+  check(
+    'respons simpan naskah metadata-saja + word_count',
+    put.status === 200 && put.data.data.script.content === undefined && put.data.data.script.word_count === 6
+  );
+  const putTitle = await req('manager', 'PUT', `/api/scripts/${sid}`, { body: { title: 'Sambutan Rektor (revisi 2)' } });
+  check(
+    'word_count tidak dihitung ulang saat isi tak berubah (hemat CPU isolate)',
+    putTitle.status === 200 && putTitle.data.data.script.word_count === 6
+  );
+  const detailMgr = await req('manager', 'GET', `/api/projects/${pid}`);
+  const sMeta = (detailMgr.data.data.scripts || []).find((x) => x.id === sid);
+  check(
+    'daftar naskah proyek metadata-saja (content tidak dikirim)',
+    !!sMeta && sMeta.content === undefined && sMeta.title.includes('revisi 2') && sMeta.word_count === 6
+  );
+  const single = await req('manager', 'GET', `/api/scripts/${sid}`);
+  check(
+    'GET naskah tunggal tetap menyertakan isi (editor & teleprompter on-demand)',
+    single.status === 200 && single.data.data.script.content.includes('Assalamualaikum') && single.data.data.script.word_count === 6
+  );
 
   const noAccessLogin = await req('presenter', 'POST', '/api/auth/login', {
     body: { username: 'presenter', password: 'password-presenter' },

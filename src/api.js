@@ -1,13 +1,17 @@
 // api.js — seluruh endpoint API Basarang: Bagarak Saurang
 // Konvensi respons: { ok: true, data: ... } atau { ok: false, error, message }
 
-import { nowIso } from './db.js';
+import { nowIso, countWords } from './db.js';
 import * as auth from './auth.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 const MAX_BODY_BYTES = 300000; // 300 KB — naskah dibatasi 100.000 karakter
 const MAX_SCRIPT_CHARS = 100000; // ~1,5 jam pidato; TANPA batasan demo 700 karakter
 const ROLES = ['super_admin', 'manager', 'member'];
+// Daftar naskah = metadata-saja (TANPA kolom content): proyek berisi ratusan naskah
+// tidak lagi mengirim puluhan MB JSON per buka halaman. Isi naskah diambil on-demand
+// lewat GET /api/scripts/:id (dipakai editor & teleprompter).
+const SCRIPT_COLS = 'id, title, words_per_minute, word_count, created_by, created_at, updated_at';
 
 export class HttpError extends Error {
   constructor(status, code, message) {
@@ -349,7 +353,10 @@ export async function handleApi(request, env, url) {
       const acc = await getProjectAccess(db, projectId, user);
       if (!acc) throw new HttpError(404, 'not_found', 'Proyek tidak ditemukan atau Anda tidak punya akses.');
       const [scripts, members, owner] = await Promise.all([
-        db.prepare('SELECT * FROM scripts WHERE project_id = ? ORDER BY updated_at DESC').bind(projectId).all(),
+        db
+          .prepare(`SELECT ${SCRIPT_COLS} FROM scripts WHERE project_id = ? ORDER BY updated_at DESC`)
+          .bind(projectId)
+          .all(),
         db
           .prepare(
             `SELECT pm.user_id, pm.role AS member_role, pm.added_at, u.username, u.display_name
@@ -469,22 +476,28 @@ export async function handleApi(request, env, url) {
     const title = reqStr(body.title, 'judul naskah', 2, 120);
     const content = optStr(body.content, 'isi naskah', MAX_SCRIPT_CHARS);
     const wpm = body.words_per_minute !== undefined ? validWpm(body.words_per_minute) : 140;
+    const wcount = countWords(content);
     // Guard kirim-ganda: naskah berjudul sama oleh pembuat sama pada proyek sama dalam 15 detik
     // dikembalikan yang sudah ada — mencegah naskah dobel (autosave vs klik Simpan beririsan).
     const cutoff = new Date(Date.now() - 15000).toISOString();
     const recent = await db
-      .prepare('SELECT * FROM scripts WHERE project_id = ? AND title = ? AND created_by = ? AND created_at > ? ORDER BY id DESC LIMIT 1')
+      .prepare(
+        `SELECT ${SCRIPT_COLS} FROM scripts WHERE project_id = ? AND title = ? AND created_by = ? AND created_at > ? ORDER BY id DESC LIMIT 1`
+      )
       .bind(projectId, title, user.id, cutoff)
       .first();
     if (recent) return json({ ok: true, data: { script: recent } }, 201);
     const now = nowIso();
     const res = await db
       .prepare(
-        'INSERT INTO scripts (project_id, title, content, words_per_minute, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO scripts (project_id, title, content, words_per_minute, word_count, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       )
-      .bind(projectId, title, content, wpm, user.id, now, now)
+      .bind(projectId, title, content, wpm, wcount, user.id, now, now)
       .run();
-    const script = await db.prepare('SELECT * FROM scripts WHERE id = ?').bind(res.meta.last_row_id).first();
+    const script = await db
+      .prepare(`SELECT ${SCRIPT_COLS} FROM scripts WHERE id = ?`)
+      .bind(res.meta.last_row_id)
+      .first();
     return json({ ok: true, data: { script } }, 201);
   }
 
@@ -519,11 +532,22 @@ export async function handleApi(request, env, url) {
       const content = body.content !== undefined ? optStr(body.content, 'isi naskah', MAX_SCRIPT_CHARS) : script.content;
       const wpm =
         body.words_per_minute !== undefined ? validWpm(body.words_per_minute) : script.words_per_minute;
+      // Hitung ulang jumlah kata hanya saat isi berubah — hemat CPU isolate
+      // (regex atas naskah 100 ribu karakter tidak diulang tiap edit judul/KPM).
+      const wcount =
+        body.content !== undefined
+          ? countWords(content)
+          : script.word_count != null
+            ? script.word_count
+            : countWords(script.content);
       await db
-        .prepare('UPDATE scripts SET title = ?, content = ?, words_per_minute = ?, updated_at = ? WHERE id = ?')
-        .bind(title, content, wpm, nowIso(), scriptId)
+        .prepare('UPDATE scripts SET title = ?, content = ?, words_per_minute = ?, word_count = ?, updated_at = ? WHERE id = ?')
+        .bind(title, content, wpm, wcount, nowIso(), scriptId)
         .run();
-      const updated = await db.prepare('SELECT * FROM scripts WHERE id = ?').bind(scriptId).first();
+      const updated = await db
+        .prepare(`SELECT ${SCRIPT_COLS} FROM scripts WHERE id = ?`)
+        .bind(scriptId)
+        .first();
       return ok({ script: updated });
     }
   }

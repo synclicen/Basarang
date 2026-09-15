@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS scripts (
   title TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '',
   words_per_minute INTEGER NOT NULL DEFAULT 140,
+  word_count INTEGER,
   created_by INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
