@@ -231,8 +231,12 @@ console.log('— Aset statis & kesehatan —');
       (css.text || '').includes('.p-video-box') && (css.text || '').includes('z-index: 21') && (css.text || '').includes('.p-video-dot') && (css.text || '').includes('.p-video-off')
     );
     check(
-      'HUD kompak: tombol 36px, play 48px, padding 5px',
-      (css.text || '').includes('min-width: 36px; height: 36px') && (css.text || '').includes('min-width: 48px; height: 48px') && (css.text || '').includes('padding: 5px clamp(8px, 2.5vw, 16px)') && (css.text || '').includes('width: clamp(58px, 11vw, 110px); height: 22px;')
+      'HUD ultra-kompak (50%): tombol 24px, play 24px, padding 2px',
+      (css.text || '').includes('min-width: 24px; height: 24px;') && (css.text || '').includes('border-radius: 7px;') && (css.text || '').includes('min-width: 24px; height: 24px; border-radius: 50%') && (css.text || '').includes('padding: 2px clamp(6px, 2vw, 12px)') && (css.text || '').includes('width: clamp(40px, 7vw, 72px); height: 14px;')
+    );
+    check(
+      'HUD ultra-kompak: offset panel 40px, target sentuh 32px, ikon 10px',
+      (css.text || '').includes('bottom: calc(40px + var(--footer-h))') && (css.text || '').includes('min-width: 32px; height: 32px;') && (css.text || '').includes('min-height: 32px;') && (css.text || '').includes('.p-ctrl .icon { width: 10px; height: 10px; }')
     );
     check(
       'ponsel: kontrol satu baris (elemen sekunder disembunyikan)',
