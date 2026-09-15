@@ -429,14 +429,6 @@
         <div class="auth-hero">
           <div class="mark">B</div>
           <h1><em>Basarang</em>: Bagarak Saurang</h1>
-          <p class="tag">AI Teleprompter yang mengikuti suara Anda — bicara natural, jaga kontak mata, sekali take langsung jadi. Untuk rekaman maupun live.</p>
-          <p class="tag-en">“Your script automatically follows your voice, so you can speak naturally and maintain eye contact. Get it right the first time, recording or live.”</p>
-          <div class="feature-row">
-            <span class="pill pill-gold">Mengikuti suara</span>
-            <span class="pill pill-purple">Sinkron lintas perangkat</span>
-            <span class="pill">60+ bahasa</span>
-            <span class="pill">Rekam video</span>
-          </div>
         </div>
         <form class="card" id="login-form" novalidate>
           <label class="field">
