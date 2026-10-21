@@ -266,6 +266,80 @@ console.log('— Regresi: mode Timer tanpa suara —');
   await sleep(300);
 }
 
+console.log('— Mode luring: offline penuh di Chromium —');
+{
+  // Online dulu: buka halaman proyek agar ikut tersimpan di perangkat.
+  await page.evaluate(() => { location.hash = '#/dashboard'; });
+  await page.waitForSelector('#dash-projects .proj-card', { timeout: 15000 });
+  await page.click('#dash-projects .proj-card');
+  await page.waitForSelector('[data-edit]', { timeout: 15000 });
+
+  const swReady = await page.evaluate(async () => {
+    if (!('serviceWorker' in navigator)) return false;
+    const reg = await navigator.serviceWorker.ready;
+    return !!reg.active;
+  });
+  check('service worker aktif (app shell ter-cache)', swReady);
+
+  // PUTUS JARINGAN SEPENUHNYA, lalu muat ulang halaman.
+  await context.setOffline(true);
+  let shellOk = false;
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.waitForSelector('.topbar', { timeout: 8000 });
+    shellOk = !!(await page.$('.topbar'));
+  } catch (e) {
+    console.error('  [reload offline]', String(e.message).split('\n')[0]);
+  }
+  check('offline total: app shell tetap termuat dari service worker', shellOk);
+
+  const tb = await page.textContent('.topbar').catch(() => '');
+  check('offline: pil "Luring" tampil di topbar', tb.includes('Luring'), tb.slice(0, 90).trim());
+
+  const note = await page.textContent('.off-note').catch(() => '');
+  check('offline: banner mode luring di halaman proyek', note.includes('Mode luring'), note.slice(0, 60));
+
+  // Editor membuka isi dari cache perangkat (tanpa jaringan).
+  await page.click('[data-edit]');
+  await page.waitForSelector('#content-ta', { timeout: 15000 });
+  const taBefore = await page.inputValue('#content-ta');
+  check('offline: editor membuka isi dari cache perangkat', taBefore.includes('teleprompter Basarang'), taBefore.slice(0, 40));
+
+  // Edit + simpan saat offline → masuk antrean di perangkat.
+  const ISI_OFFLINE =
+    'Uji luring: paragraf ini diedit tanpa koneksi internet, tersimpan di perangkat, dan terkirim otomatis saat online kembali.';
+  await page.fill('#content-ta', ISI_OFFLINE);
+  await page.click('#script-form button[type=submit]');
+  await sleep(1200);
+  const q = await page.evaluate(() => JSON.parse(localStorage.getItem('bsng.queue') || '[]'));
+  check(
+    'offline: simpan masuk antrean perangkat (PUT tertunda)',
+    q.length === 1 && q[0].method === 'PUT' && q[0].body && q[0].body.content === ISI_OFFLINE,
+    JSON.stringify(q.map((x) => x.key))
+  );
+  const draftLeft = await page.evaluate((sid) => !!localStorage.getItem('bsng.draft.edit:' + sid), globalThis.__SID);
+  check('offline: draf lokal dibersihkan setelah masuk antrean', !draftLeft);
+
+  // Teleprompter dari cache saat offline — mode Timer menggulir tanpa jaringan.
+  await page.evaluate((sid) => { location.hash = '#/prompter/' + sid; }, globalThis.__SID);
+  await page.waitForSelector('#p-play', { timeout: 15000 });
+  const s0 = await $eval(() => document.getElementById('p-scroll').scrollTop);
+  await page.evaluate(() => document.getElementById('p-play').click());
+  await sleep(4600);
+  const s1 = await $eval(() => document.getElementById('p-scroll').scrollTop);
+  check('offline: teleprompter dari cache & mode Timer menggulir', s1 > s0, `${s0} → ${s1}`);
+  await page.evaluate(() => document.getElementById('p-exit').click());
+  await sleep(400);
+
+  // ONLINE KEMBALI → antrean harus terkirim otomatis.
+  await context.setOffline(false);
+  await sleep(1800);
+  const q2 = await page.evaluate(() => JSON.parse(localStorage.getItem('bsng.queue') || '[]'));
+  check('online kembali: antrean terkirim otomatis (kosong)', q2.length === 0, JSON.stringify(q2));
+  const d = await api('GET', '/api/scripts/' + globalThis.__SID, null, globalThis.__COOKIE);
+  check('server menerima hasil edit offline (isi cocok)', d.data?.data?.script?.content === ISI_OFFLINE);
+}
+
 // ---------- Rapikan ----------
 
 await browser.close();

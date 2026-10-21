@@ -16,6 +16,7 @@ const FILES = [
   { route: '/align.js', file: 'align.js', type: 'application/javascript; charset=utf-8' },
   { route: '/prompter.js', file: 'prompter.js', type: 'application/javascript; charset=utf-8' },
   { route: '/favicon.svg', file: 'favicon.svg', type: 'image/svg+xml' },
+  { route: '/sw.js', file: 'sw.js', type: 'application/javascript; charset=utf-8' },
 ];
 
 const entries = FILES.map(({ route, file, type }) => {

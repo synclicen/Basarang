@@ -341,7 +341,7 @@ console.log('— Aset statis & kesehatan —');
     );
     check(
       'frontend: kartu pakai word_count server & editor fetch on-demand',
-      jsText.includes('Number(s.word_count) || 0') && jsText.includes("api('/scripts/' + s.id)") && jsText.includes('scriptEditor(project, d.script)')
+      jsText.includes('Number(s.word_count) || 0') && jsText.includes("api('/scripts/' + s.id)") && jsText.includes('scriptEditor(project, full)')
     );
     check(
       'skema & auth: kolom word_count + PBKDF2 di bawah batas CPU ganti sandi',
@@ -352,6 +352,35 @@ console.log('— Aset statis & kesehatan —');
   check('favicon tersaji', fav.status === 200);
   const nf = await req(null, 'GET', '/tidak-ada');
   check('jalur asing dialihkan ke /', nf.status === 302 || nf.status === 301);
+}
+
+console.log('— Mode luring (offline) —');
+{
+  const sw = await req(null, 'GET', '/sw.js');
+  const swText = (await sw.res.text()) || '';
+  check(
+    'sw.js tersaji sebagai service worker (shell cache)',
+    sw.status === 200 && (sw.res.headers.get('content-type') || '').includes('javascript') && swText.includes('basarang-shell') && swText.includes("addEventListener('fetch'")
+  );
+  const page2 = await req(null, 'GET', '/');
+  const html2 = page2.text || '';
+  check('index.html mendaftarkan service worker (aktif saat https/localhost)', html2.includes('serviceWorker') && html2.includes('/sw.js'));
+  const js2 = await req(null, 'GET', '/app.js');
+  const a = (await js2.res.text()) || '';
+  const css2 = await req(null, 'GET', '/style.css');
+  const c2 = css2.text || '';
+  check(
+    'app.js: modul luring (draf lokal + antrean sinkron + cache naskah)',
+    a.includes('bsng.queue') && a.includes('Off.enqueue') && a.includes('async drain()') && a.includes('setInterval') && a.includes('bsng.draft.') && a.includes('bsng.script.')
+  );
+  check(
+    'app.js: simpan saat luring → "Tersimpan di perangkat"',
+    a.includes('Tersimpan di perangkat ✓') && a.includes('terkirim otomatis saat online')
+  );
+  check('app.js: pulihkan draf lokal saat editor dibuka lagi', a.includes('Draf lokal dipulihkan'));
+  check('app.js: teleprompter luring memuat cache perangkat', a.includes('Mode luring — memuat naskah versi terakhir'));
+  check('app.js: keluar menghapus semua data luring di perangkat', a.includes('Off.clearAll()'));
+  check('css: banner luring & pil status topbar', c2.includes('.off-note') && c2.includes('.pill-warn'));
 }
 
 console.log('— Setup & autentikasi —');

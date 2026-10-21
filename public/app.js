@@ -7,7 +7,7 @@
   const $modalRoot = document.getElementById('modal-root');
   const $toastRoot = document.getElementById('toast-root');
 
-  const state = { user: null, needsSetup: false, booted: false };
+  const state = { user: null, needsSetup: false, booted: false, luring: false };
 
   // ---------- Footer selalu terlihat ----------
 
@@ -59,7 +59,13 @@
       init.headers['content-type'] = 'application/json';
       init.body = JSON.stringify(opts.body);
     }
-    const res = await fetch('/api' + path, init);
+    let res;
+    try {
+      res = await fetch('/api' + path, init);
+    } catch {
+      // fetch melempar TypeError hanya saat jaringan putus (bukan jawaban server).
+      throw new ApiError('Anda sedang luring (tanpa koneksi). Perubahan tetap disimpan di perangkat.', 0, 'offline');
+    }
     let data = null;
     try {
       data = await res.json();
@@ -75,6 +81,172 @@
     }
     return data.data;
   }
+
+  // ---------- Mode luring (offline): draf lokal + antrean sinkron + cache ----------
+  // Prinsip:
+  //   (1) Tiap ketikan di editor langsung dicadangkan ke localStorage — teks tidak
+  //       pernah hilang walau sinyal putus / aplikasi tertutup paksa.
+  //   (2) Simpan yang gagal karena offline masuk antrean dan dikirim OTOMATIS
+  //       begitu koneksi kembali (event 'online' + percobaan berkala).
+  //   (3) Proyek & naskah yang pernah dibuka di-cache agar daftar, editor, dan
+  //       teleprompter (mode Timer) tetap bisa dibuka tanpa jaringan.
+  // Shell aplikasi (HTML/JS/CSS) di-cache oleh service worker (public/sw.js).
+  const LS = {
+    get(k, fb) {
+      try {
+        const v = localStorage.getItem(k);
+        return v == null ? fb : JSON.parse(v);
+      } catch {
+        return fb;
+      }
+    },
+    set(k, v) {
+      try {
+        localStorage.setItem(k, JSON.stringify(v));
+        return true;
+      } catch {
+        Off.prune();
+        try {
+          localStorage.setItem(k, JSON.stringify(v));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    },
+    del(k) {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* abaikan */
+      }
+    },
+    keys(prefix) {
+      const out = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf(prefix) === 0) out.push(k);
+        }
+      } catch {
+        /* abaikan */
+      }
+      return out;
+    },
+  };
+  const Off = {
+    queue: [],
+    online: navigator.onLine !== false,
+    draining: false,
+    isNetErr(e) {
+      return !!e && (e.status === 0 || e.code === 'offline');
+    },
+    init() {
+      this.queue = LS.get('bsng.queue', []) || [];
+      window.addEventListener('online', () => {
+        this.online = true;
+        toast('Kembali online — mengirim perubahan tersimpan di perangkat…', 'info', 3200);
+        this.drain().then(() => {
+          if (!window.Prompter || !window.Prompter.isActive()) render();
+        });
+      });
+      window.addEventListener('offline', () => {
+        this.online = false;
+        toast('Anda luring — perubahan tetap bisa disimpan di perangkat.', 'info', 3600);
+        if (!window.Prompter || !window.Prompter.isActive()) render();
+      });
+      // Percobaan berkala: event 'online' kadang tak terpicu (mis. beberapa WebView).
+      setInterval(() => {
+        this.drain();
+      }, 30000);
+      this.drain();
+    },
+    persistQueue() {
+      LS.set('bsng.queue', this.queue);
+    },
+    enqueue(item) {
+      // Satu antrean per naskah (key): simpan terbaru menimpa yang menunggu.
+      this.queue = this.queue.filter((q) => q.key !== item.key);
+      this.queue.push(item);
+      this.persistQueue();
+    },
+    async drain() {
+      if (this.draining || !this.online || !this.queue.length) return;
+      this.draining = true;
+      try {
+        while (this.queue.length) {
+          const item = this.queue[0];
+          try {
+            const data = await api(item.path, { method: item.method, body: item.body });
+            this.queue.shift();
+            this.persistQueue();
+            if (data && data.script) this.cacheScript(data.script);
+            toast('"' + (data && data.script ? data.script.title : item.body.title) + '" terkirim ke server ✓', 'ok', 3200);
+          } catch (err) {
+            if (this.isNetErr(err)) break; // masih offline — coba lagi nanti
+            // Ditolak server (bukan soal jaringan): tidak akan pernah lolos — buang.
+            this.queue.shift();
+            this.persistQueue();
+            toast('Perubahan "' + item.body.title + '" ditolak server: ' + err.message, 'err', 5200);
+          }
+        }
+      } finally {
+        this.draining = false;
+      }
+    },
+    cacheUser(u) {
+      if (u) LS.set('bsng.user', u);
+    },
+    cachedUser() {
+      return LS.get('bsng.user', null);
+    },
+    cacheProjects(list) {
+      LS.set('bsng.projects', { projects: list, ts: Date.now() });
+    },
+    cachedProjects() {
+      return LS.get('bsng.projects', null);
+    },
+    cacheProject(d) {
+      LS.set('bsng.proj.' + d.project.id, Object.assign({}, d, { ts: Date.now() }));
+    },
+    cachedProject(id) {
+      return LS.get('bsng.proj.' + id, null);
+    },
+    cacheScript(s) {
+      if (!s || !s.id) return;
+      LS.set('bsng.script.' + s.id, {
+        id: s.id,
+        project_id: s.project_id,
+        title: s.title,
+        content: s.content,
+        words_per_minute: s.words_per_minute,
+        updated_at: s.updated_at || '',
+        ts: Date.now(),
+      });
+    },
+    cachedScript(id) {
+      return LS.get('bsng.script.' + id, null);
+    },
+    saveDraft(key, draft) {
+      LS.set('bsng.draft.' + key, Object.assign({}, draft, { ts: Date.now() }));
+    },
+    loadDraft(key) {
+      return LS.get('bsng.draft.' + key, null);
+    },
+    clearDraft(key) {
+      LS.del('bsng.draft.' + key);
+    },
+    prune() {
+      // Kuota localStorage penuh: buang cache isi naskah tertua (draf & antrean tak disentuh).
+      const keys = LS.keys('bsng.script.').map((k) => ({ k, ts: (LS.get(k, {}) || {}).ts || 0 }));
+      keys.sort((a, b) => a.ts - b.ts);
+      for (let i = 0; i < Math.ceil(keys.length / 2); i++) LS.del(keys[i].k);
+    },
+    clearAll() {
+      for (const k of LS.keys('bsng.')) LS.del(k);
+      this.queue = [];
+    },
+  };
 
   function toast(msg, type = 'info', ms = 2600) {
     const node = el(`<div class="toast ${esc(type)}">${esc(msg)}</div>`);
@@ -250,6 +422,11 @@
           <span class="brand-name"><em>BASARANG</em><span class="brand-tail">: Bagarak Saurang</span></span>
         </a>
         <div class="topbar-actions">
+          ${state.luring || !Off.online
+            ? '<span class="pill pill-warn" title="Tanpa koneksi — menampilkan data tersimpan di perangkat; perubahan dikirim otomatis saat online">Luring</span>'
+            : Off.queue.length
+              ? `<span class="pill pill-warn" title="${Off.queue.length} perubahan menunggu terkirim ke server">Kirim tertunda (${Off.queue.length})</span>`
+              : ''}
           ${adminBtn}
           <a class="btn btn-ghost btn-sm" href="#/dashboard" title="Proyek">${I.prompter}<span class="hide-sm">Proyek</span></a>
           <button class="btn btn-ghost btn-sm" id="btn-pass" title="Ubah kata sandi">${I.key}</button>
@@ -275,8 +452,11 @@
       } catch {
         /* abaikan */
       }
+      // Keluar = hapus semua data pribadi di perangkat (cache luring, draf, antrean).
+      Off.clearAll();
       state.user = null;
       state.needsSetup = false;
+      state.luring = false;
       navigate('#/login');
       toast('Anda telah keluar.', 'info');
     });
@@ -472,6 +652,7 @@
           </label>
           <div class="form-err" id="login-err"></div>
           <button class="btn btn-gold btn-block btn-lg" type="submit">Masuk</button>
+          ${Off.online ? '' : '<p class="hint" style="text-align:center;margin-top:8px;color:var(--gold-2)">Anda sedang luring — masuk memerlukan koneksi internet.</p>'}
           <p class="hint" style="text-align:center;margin-top:12px">Akun dibuat oleh super admin. Lupa kata sandi? Hubungi pengelola.</p>
         </form>
       </div>
@@ -491,6 +672,7 @@
           body: { username: fd.get('username'), password: fd.get('password') },
         });
         state.user = data.user;
+        Off.cacheUser(data.user);
         toast('Selamat datang kembali, ' + data.user.display_name + '!', 'ok');
         navigate('#/dashboard');
       } catch (err) {
@@ -507,6 +689,7 @@
     $app.innerHTML = `
     ${topbarHtml('dashboard')}
     <main class="page container">
+      <div id="dash-off"></div>
       <div class="page-head">
         <div class="grow">
           <h2 class="page-title">Proyek</h2>
@@ -534,9 +717,33 @@
 
     const wrap = document.getElementById('dash-projects');
     wrap.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+    let d = null;
+    let luring = false;
     try {
-      const d = await api('/projects');
-      const projects = d.projects || [];
+      d = await api('/projects');
+      Off.cacheProjects(d.projects || []);
+      state.luring = false;
+    } catch (err) {
+      const c = Off.isNetErr(err) ? Off.cachedProjects() : null;
+      if (c) {
+        d = { projects: c.projects };
+        luring = true;
+      } else {
+        wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><h3>Tidak dapat memuat proyek</h3>
+          <p>${esc(err.message)}</p>
+          <p class="hint">Buka aplikasi sekali saat online agar daftar proyek tersimpan untuk mode luring.</p></div>`;
+        return;
+      }
+    }
+    if (luring) {
+      state.luring = true;
+      const offSlot = document.getElementById('dash-off');
+      if (offSlot)
+        offSlot.innerHTML =
+          '<div class="off-note">Mode luring — menampilkan data terakhir yang tersimpan di perangkat. Perubahan yang Anda simpan akan dikirim otomatis saat kembali online.</div>';
+    }
+    {
+      const projects = (d && d.projects) || [];
       if (!projects.length) {
         wrap.innerHTML = `
         <div class="empty-state" style="grid-column:1/-1">
@@ -595,8 +802,6 @@
           }
         })
       );
-    } catch (err) {
-      wrap.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><h3>Gagal memuat</h3><p>${esc(err.message)}</p></div>`;
     }
   }
 
@@ -662,17 +867,28 @@
     <main class="page container"><div class="skel" style="height:300px"></div></main>`;
     bindLogout();
     let d;
+    let luring = false;
     try {
       d = await api('/projects/' + projectId);
+      Off.cacheProject(d);
+      state.luring = false;
     } catch (err) {
-      $app.innerHTML = `${topbarHtml()}
+      const c = Off.isNetErr(err) ? Off.cachedProject(projectId) : null;
+      if (c) {
+        d = c;
+        luring = true;
+      } else {
+        $app.innerHTML = `${topbarHtml()}
       <main class="page container">
         <div class="empty-state"><h3>Tidak dapat membuka proyek</h3><p>${esc(err.message)}</p>
+        <p class="hint">${Off.isNetErr(err) ? 'Buka proyek ini sekali saat online agar tersimpan untuk mode luring.' : ''}</p>
         <a class="btn btn-ghost mt-3" href="#/dashboard">${I.back} Kembali</a></div>
       </main>`;
-      bindLogout();
-      return;
+        bindLogout();
+        return;
+      }
     }
+    state.luring = luring;
     const { project, scripts, members, owner, my_role, can_manage } = d;
     const isOwner = my_role === 'owner';
     const canAddScript = my_role === 'owner' || my_role === 'member' || state.user.role === 'super_admin';
@@ -681,6 +897,7 @@
     ${topbarHtml('dashboard')}
     <main class="page container">
       <div class="crumbs"><a href="#/dashboard">Proyek</a> / <b>${esc(project.name)}</b></div>
+      ${luring ? '<div class="off-note">Mode luring — menampilkan data terakhir yang tersimpan di perangkat. Perubahan yang Anda simpan akan dikirim otomatis saat kembali online.</div>' : ''}
       <div class="page-head">
         <div class="grow">
           <h2 class="page-title"><span class="gold">${esc(project.name)}</span>
@@ -764,12 +981,24 @@
           const s = scripts.find((x) => String(x.id) === b.dataset.edit);
           if (!s) return;
           // Isi naskah diambil on-demand saat editor dibuka (daftar hanya metadata).
+          let full = null;
           try {
             const d = await api('/scripts/' + s.id);
-            scriptEditor(project, d.script);
+            full = d.script;
+            Off.cacheScript(d.script);
           } catch (err) {
-            toast('Tidak dapat membuka naskah: ' + err.message, 'err');
+            // Luring: pakai isi terakhir yang tersimpan di perangkat.
+            if (Off.isNetErr(err)) full = Off.cachedScript(s.id);
+            if (!full) {
+              toast(
+                'Tidak dapat membuka naskah: ' + err.message + (Off.isNetErr(err) ? ' (naskah ini belum pernah dibuka saat online)' : ''),
+                'err',
+                4200
+              );
+              return;
+            }
           }
+          scriptEditor(project, full);
         })
       );
       grid.querySelectorAll('[data-del]').forEach((b) =>
@@ -916,6 +1145,7 @@
           <div style="flex:1;min-width:150px;text-align:right">
             <div id="sc-stats" class="hint" style="margin-top:18px">0 kata · ~0 detik</div>
             <div id="sc-save" class="hint" style="color:var(--silver-3)">Belum tersimpan</div>
+            <div id="sc-draft" class="hint" style="min-height:16px;color:var(--gold-2)"></div>
           </div>
         </div>
         <div class="form-err" id="script-err"></div>
@@ -934,6 +1164,27 @@
         let savedId = isNew ? null : script.id;
         let lastSaved = isNew ? null : { title: script.title, content: script.content, wpm: script.words_per_minute };
         let dirty = false;
+        const draftKey = isNew ? 'new:' + project.id : 'edit:' + script.id;
+        // Draf lokal: tiap ketikan dicadangkan ke perangkat (debounce 400 ms).
+        // Draf hanya dibersihkan setelah simpan BERHASIL ke server — apa pun yang
+        // terjadi (sinyal putus, aplikasi tertutup, HP mati di tengah mengetik),
+        // ketikan terakhir dipulihkan otomatis saat editor dibuka lagi.
+        const draftEl = root.querySelector('#sc-draft');
+        const saveDraftNow = debounce(() => {
+          Off.saveDraft(draftKey, {
+            title: form.title.value.trim(),
+            content: ta.value,
+            wpm: Number(form.words_per_minute.value) || 140,
+          });
+        }, 400);
+        const draft = Off.loadDraft(draftKey);
+        if (draft) {
+          form.title.value = draft.title || '';
+          ta.value = draft.content || '';
+          if (draft.wpm) form.words_per_minute.value = draft.wpm;
+          draftEl.textContent = 'Draf lokal dipulihkan — ' + new Date(draft.ts).toLocaleString('id-ID');
+          dirty = true;
+        }
         // Antrean simpan: autosave + Simpan + Teleprompter tidak pernah berjalan paralel,
         // dan setelah simpan pertama (POST) semua simpan berikutnya jadi PUT — mencegah naskah ganda.
         let saveChain = Promise.resolve();
@@ -951,10 +1202,15 @@
           updateStats();
           saveHint.textContent = 'Perubahan belum tersimpan…';
           saveHint.style.color = 'var(--warn)';
+          saveDraftNow();
           autosave();
+        });
+        form.title.addEventListener('input', () => {
+          saveDraftNow();
         });
         form.words_per_minute.addEventListener('input', () => {
           updateStats();
+          saveDraftNow();
           if (!isNew) {
             dirty = true;
             autosave();
@@ -984,10 +1240,32 @@
               }
               lastSaved = { title: body.title, content: body.content, wpm: body.words_per_minute };
               dirty = false;
+              Off.clearDraft(draftKey);
+              Off.cacheScript(data.script);
+              if (draftEl) draftEl.textContent = '';
               saveHint.textContent = 'Tersimpan ✓ ' + new Date().toLocaleTimeString('id-ID');
               saveHint.style.color = 'var(--ok)';
               return data.script;
             } catch (err) {
+              if (Off.isNetErr(err)) {
+                // LURING: simpan di perangkat + antre; terkirim otomatis saat online.
+                lastSaved = { title: body.title, content: body.content, wpm: body.words_per_minute };
+                dirty = false;
+                Off.clearDraft(draftKey);
+                if (draftEl) draftEl.textContent = '';
+                if (savedId) {
+                  Off.enqueue({ key: 'edit:' + savedId, method: 'PUT', path: '/scripts/' + savedId, body, ts: Date.now() });
+                  Off.cacheScript({ id: savedId, project_id: project.id, ...body });
+                  saveHint.textContent = 'Tersimpan di perangkat ✓ — terkirim otomatis saat online';
+                  saveHint.style.color = 'var(--ok)';
+                  return { id: savedId, project_id: project.id, queued: true, ...body };
+                }
+                // Naskah BARU saat luring: menunggu POST saat online (belum ada id server).
+                Off.enqueue({ key: 'new:' + project.id, method: 'POST', path: '/projects/' + project.id + '/scripts', body, ts: Date.now() });
+                saveHint.textContent = 'Tersimpan di perangkat ✓ — naskah baru muncul di daftar setelah online';
+                saveHint.style.color = 'var(--ok)';
+                return null;
+              }
               saveHint.textContent = 'Gagal menyimpan — coba lagi.';
               saveHint.style.color = 'var(--err)';
               toast(err.message, 'err', 4000);
@@ -1007,7 +1285,7 @@
           btn.disabled = false;
           if (s) {
             close();
-            toast('Naskah tersimpan.', 'ok');
+            toast(s.queued ? 'Tersimpan di perangkat — akan dikirim otomatis saat online.' : 'Naskah tersimpan.', s.queued ? 'info' : 'ok');
             render();
           }
         });
@@ -1223,6 +1501,7 @@
     <main class="page container"><div class="skel" style="height:320px"></div></main>`;
     try {
       const d = await api('/scripts/' + scriptId);
+      Off.cacheScript(d.script);
       if (!window.Prompter) throw new Error('Modul teleprompter gagal dimuat. Muat ulang halaman.');
       window.Prompter.open({
         script: d.script,
@@ -1232,6 +1511,22 @@
         },
       });
     } catch (err) {
+      // Luring: buka versi terakhir yang tersimpan di perangkat (mode Timer penuh).
+      if (Off.isNetErr(err) && window.Prompter) {
+        const c = Off.cachedScript(scriptId);
+        if (c) {
+          const pc = Off.cachedProject(c.project_id);
+          toast('Mode luring — memuat naskah versi terakhir yang tersimpan. Mode Timer berjalan penuh; mode Suara butuh koneksi.', 'info', 4200);
+          window.Prompter.open({
+            script: c,
+            projectName: pc ? pc.project.name : '',
+            onExit: () => {
+              navigate('#/project/' + c.project_id);
+            },
+          });
+          return;
+        }
+      }
       $app.innerHTML = `${topbarHtml()}
       <main class="page container">
         <div class="empty-state"><h3>Tidak dapat membuka teleprompter</h3><p>${esc(err.message)}</p>
@@ -1248,13 +1543,24 @@
       const d = await api('/auth/me');
       state.user = d.user;
       state.needsSetup = !!d.needsSetup;
-    } catch {
+      Off.cacheUser(d.user);
+    } catch (e) {
       state.user = null;
       state.needsSetup = false;
+      // Luring: sesi terakhir yang tersimpan di perangkat tetap bisa dipakai
+      // (data baca dari cache; tulisan masuk antrean sinkron).
+      if (Off.isNetErr(e)) {
+        const cu = Off.cachedUser();
+        if (cu) {
+          state.user = cu;
+          state.luring = true;
+        }
+      }
     }
     state.booted = true;
     if (!location.hash) location.hash = state.user ? '#/dashboard' : state.needsSetup ? '#/setup' : '#/login';
     render();
+    Off.init();
   }
 
   window.addEventListener('hashchange', () => {

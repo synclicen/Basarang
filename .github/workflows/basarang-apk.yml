@@ -97,19 +97,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_NOTES: |
-            **Basarang v1.0.0** — AI Teleprompter yang mengikuti suara Anda.
+            **Basarang v__VER__** — AI Teleprompter yang mengikuti suara Anda.
             Teleprompter untuk Humas UIN Antasari Banjarmasin; naskah mengikuti suara pembaca, tanpa batas jumlah kata.
 
+            **Baru di 1.1.0 — mode luring:** naskah yang pernah dibuka tersimpan di perangkat; teleprompter tetap bisa dibuka & mode Timer berjalan penuh tanpa internet; mengedit & menyimpan saat offline tersimpan di perangkat dan terkirim otomatis ke server begitu online kembali.
+
             **Cara install (Android 7.0 / Nougat ke atas):**
-            1. Unduh berkas `Basarang-v1.0.0.apk` di bawah ini langsung dari HP Android.
+            1. Unduh berkas `Basarang-v__VER__.apk` di bawah ini langsung dari HP Android.
             2. Buka berkasnya (dari notifikasi unduhan atau aplikasi Files); bila diminta, izinkan *instal aplikasi tidak dikenal* untuk peramban/Files Anda.
             3. Buka aplikasi **Basarang**, lalu masuk dengan akun Basarang Anda seperti biasa.
 
-            Mode **Suara** membutuhkan izin mikrofon serta layanan pengenalan suara Google (umumnya sudah terpasang di HP Android). Mode **Timer** selalu tersedia tanpa mikrofon. Tag `apk` selalu berisi build terbaru.
+            Mode **Suara** membutuhkan izin mikrofon serta layanan pengenalan suara Google dan koneksi internet. Mode **Timer** selalu tersedia tanpa mikrofon. Tag `apk` selalu berisi build terbaru.
         run: |
+          VN="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' android/AndroidManifest.xml)"
+          NOTES="$(printf '%s' "$RELEASE_NOTES" | sed "s/__VER__/${VN}/g")"
           APK="$(ls android/out/*.apk)"
           gh release delete apk --yes --cleanup-tag || true
           gh release create apk "$APK" \
-            --title "Basarang APK v1.0.0" \
-            --notes "$RELEASE_NOTES" \
+            --title "Basarang APK v${VN}" \
+            --notes "$NOTES" \
             --latest
