@@ -29,9 +29,24 @@ jobs:
 
       - name: Pasang komponen Android SDK
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;35.0.0" > /dev/null
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          # sdkmanager tidak lagi di PATH image runner — cari, atau unduh sendiri.
+          SDKM="$(command -v sdkmanager || true)"
+          [ -n "$SDKM" ] || SDKM="$(find "$SDK" -type f -name sdkmanager 2>/dev/null | sort | tail -n1)"
+          if [ -z "$SDKM" ]; then
+            echo "cmdline-tools tidak ditemukan — mengunduh…"
+            cd /tmp
+            curl -sSLo ct.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q ct.zip
+            mkdir -p "$SDK/cmdline-tools"
+            rm -rf "$SDK/cmdline-tools/latest"
+            mv cmdline-tools "$SDK/cmdline-tools/latest"
+            SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-34" "build-tools;35.0.0" > /dev/null
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
 
       - name: Uji kontrak shim SpeechRecognition
         run: node android/test-shim.mjs
