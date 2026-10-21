@@ -54,6 +54,12 @@
   }
 
   async function api(path, opts = {}) {
+    // Mode perangkat (APK full offline): seluruh permintaan dilayani penyimpanan
+    // perangkat lewat LocalApi — tanpa fetch, tanpa jaringan; kontrak respons
+    // identik dengan server sehingga semua view berjalan tanpa perubahan.
+    if (LOCAL) {
+      return LocalApi.call(opts.method || 'GET', path, opts.body);
+    }
     const init = { method: opts.method || 'GET', headers: {} };
     if (opts.body !== undefined) {
       init.headers['content-type'] = 'application/json';
@@ -256,6 +262,921 @@
     },
   };
 
+  // ---------- Mode perangkat (APK): full offline ----------
+  // Di APK, seluruh aplikasi web dibundel di dalam paket dan disajikan WebView
+  // dari origin https://app.basarang.local — setup akun, login, proyek, naskah,
+  // editor, dan teleprompter (mode Timer) berjalan 100% TANPA internet: semua
+  // data tersimpan di perangkat (IndexedDB + localStorage). Sinkronisasi ke
+  // server bersifat opsional lewat tombol Sinkron (butuh koneksi). Di luar APK,
+  // mode ini hanya bisa diaktifkan di localhost (?lokal=1) untuk pengujian —
+  // perilaku situs web tidak berubah.
+  const LOCAL =
+    location.hostname === 'app.basarang.local' ||
+    ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') &&
+      new URLSearchParams(location.search).get('lokal') === '1');
+
+  // Penyimpanan akun & sesi lokal — sengaja TIDAK memakai prefix 'bsng.' agar
+  // tidak ikut terhapus saat Off.clearAll() (logout membersihkan cache/draf,
+  // bukan akun perangkat).
+  const LR = {
+    get(k, fb) {
+      try {
+        const v = localStorage.getItem('basarang.local.' + k);
+        return v == null ? fb : JSON.parse(v);
+      } catch {
+        return fb;
+      }
+    },
+    set(k, v) {
+      try {
+        localStorage.setItem('basarang.local.' + k, JSON.stringify(v));
+      } catch {
+        /* kuota penuh — pengguna & sesi berukuran kecil, hampir mustahil */
+      }
+    },
+    del(k) {
+      try {
+        localStorage.removeItem('basarang.local.' + k);
+      } catch {
+        /* abaikan */
+      }
+    },
+  };
+
+  // IndexedDB: proyek, naskah (isi penuh — praktis tanpa batas ukuran), anggota.
+  const LDB = {
+    _p: null,
+    _open() {
+      if (!this._p) {
+        this._p = new Promise((resolve, reject) => {
+          const rq = indexedDB.open('basarang-local', 1);
+          rq.onupgradeneeded = () => {
+            const db = rq.result;
+            db.createObjectStore('projects', { keyPath: 'id' });
+            db.createObjectStore('scripts', { keyPath: 'id' });
+            db.createObjectStore('members', { keyPath: 'key' });
+          };
+          rq.onsuccess = () => resolve(rq.result);
+          rq.onerror = () => reject(rq.error || new Error('IndexedDB tidak tersedia'));
+        });
+      }
+      return this._p;
+    },
+    async _tx(store, mode, fn) {
+      const db = await this._open();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(store, mode);
+        const req = fn(tx.objectStore(store));
+        tx.oncomplete = () => resolve(req ? req.result : undefined);
+        tx.onerror = () => reject(tx.error || new Error('Transaksi IndexedDB gagal'));
+        tx.onabort = () => reject(tx.error || new Error('Transaksi dibatalkan'));
+      });
+    },
+    all: (store) => LDB._tx(store, 'readonly', (s) => s.getAll()),
+    get: (store, id) => LDB._tx(store, 'readonly', (s) => s.get(id)),
+    put: (store, val) => LDB._tx(store, 'readwrite', (s) => s.put(val)),
+    del: (store, id) => LDB._tx(store, 'readwrite', (s) => s.delete(id)),
+  };
+
+  // PBKDF2-SHA256 15.000 iterasi — format hash identik dengan server
+  // (pbkdf2:<iter>:<salt-hex>:<hash-hex>) sehingga kekuatan sandi setara.
+  async function localDerive(password, salt, iterations) {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
+    return new Uint8Array(bits);
+  }
+  function localHex(bytes) {
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  function localUnhex(hex) {
+    const out = new Uint8Array(Math.floor(hex.length / 2));
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return out;
+  }
+  async function localHashPassword(password) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const hash = await localDerive(password, salt, 15000);
+    return 'pbkdf2:15000:' + localHex(salt) + ':' + localHex(hash);
+  }
+  async function localVerifyPassword(password, stored) {
+    try {
+      const parts = String(stored || '').split(':');
+      if (parts.length !== 4 || parts[0] !== 'pbkdf2') return false;
+      const iter = parseInt(parts[1], 10);
+      if (!Number.isFinite(iter) || iter <= 0) return false;
+      const actual = await localDerive(password, localUnhex(parts[2]), iter);
+      const expected = localUnhex(parts[3]);
+      if (actual.length !== expected.length) return false;
+      let diff = 0;
+      for (let i = 0; i < actual.length; i++) diff |= actual[i] ^ expected[i];
+      return diff === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  // Validasi — cermin persis aturan server (src/api.js) agar pesan konsisten.
+  function localErr(status, code, message) {
+    return new ApiError(message, status, code);
+  }
+  function localReqStr(v, name, min, max) {
+    if (typeof v !== 'string') throw localErr(400, 'validation', 'Field ' + name + ' wajib berupa teks.');
+    const s = v.trim();
+    if (s.length < min) throw localErr(400, 'validation', 'Field ' + name + ' minimal ' + min + ' karakter.');
+    if (s.length > max) throw localErr(400, 'validation', 'Field ' + name + ' maksimal ' + max + ' karakter.');
+    return s;
+  }
+  function localOptStr(v, name, max) {
+    if (v === undefined || v === null || v === '') return '';
+    return localReqStr(v, name, 1, max);
+  }
+  function localValidUsername(v) {
+    const s = String(v || '').trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,30}$/.test(s)) {
+      throw localErr(400, 'validation', 'Username 3-30 karakter, hanya huruf kecil, angka, titik, garis bawah, strip.');
+    }
+    return s;
+  }
+  function localValidPassword(v) {
+    if (typeof v !== 'string' || v.length < 8 || v.length > 128) {
+      throw localErr(400, 'validation', 'Kata sandi 8-128 karakter.');
+    }
+    return v;
+  }
+  function localValidRole(v) {
+    if (!['super_admin', 'manager', 'member'].includes(v)) throw localErr(400, 'validation', 'Peran tidak valid.');
+    return v;
+  }
+  function localValidWpm(v) {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 60 || n > 250) {
+      throw localErr(400, 'validation', 'Kecepatan baca (KPM) harus bilangan bulat 60-250.');
+    }
+    return n;
+  }
+  function localValidEmail(v) {
+    const s = String(v || '').trim();
+    if (!s) return null;
+    if (s.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s)) {
+      throw localErr(400, 'validation', 'Format email tidak valid.');
+    }
+    return s.toLowerCase();
+  }
+
+  // LocalApi — implementasi penyimpanan perangkat dengan KONTRAK respons yang
+  // sama persis dengan server (bentuk data & pesan error), sehingga seluruh UI
+  // (setup, login, dashboard, proyek, editor, admin, prompter) jalan tanpa ubahan.
+  const LocalApi = {
+    _idSeq: 0,
+    // ID numerik unik (router SPA memakai Number(id)); jauh lebih besar dari ID
+    // server sehingga tidak bertabrakan dengan data hasil sinkronisasi.
+    nextId() {
+      this._idSeq = (this._idSeq + 1) % 1000;
+      return Date.now() * 1000 + this._idSeq;
+    },
+    now() {
+      return new Date().toISOString();
+    },
+    users() {
+      return LR.get('users', []) || [];
+    },
+    saveUsers(list) {
+      LR.set('users', list);
+    },
+    currentUser() {
+      const s = LR.get('session', null);
+      if (!s) return null;
+      return this.users().find((u) => u.id === s.user_id && u.is_active) || null;
+    },
+    publicUser(u) {
+      return {
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        display_name: u.display_name,
+        role: u.role,
+        is_active: !!u.is_active,
+        created_at: u.created_at,
+        last_login_at: u.last_login_at,
+      };
+    },
+    requireUser() {
+      const u = this.currentUser();
+      if (!u) throw localErr(401, 'auth', 'Silakan masuk terlebih dahulu.');
+      return u;
+    },
+    requireAdmin() {
+      const u = this.requireUser();
+      if (u.role !== 'super_admin') throw localErr(403, 'forbidden', 'Akses khusus super admin.');
+      return u;
+    },
+    // { project, role } bila user punya akses; role: 'owner' | 'member' | 'viewer'
+    async accessProject(projectId, user) {
+      const p = await LDB.get('projects', projectId);
+      if (!p) return null;
+      if (user.role === 'super_admin') {
+        if (p.owner_id === user.id) return { project: p, role: 'owner' };
+        const m = await LDB.get('members', projectId + ':' + user.id);
+        return { project: p, role: m ? 'member' : 'viewer' };
+      }
+      if (p.owner_id === user.id) return { project: p, role: 'owner' };
+      const m = await LDB.get('members', projectId + ':' + user.id);
+      return m ? { project: p, role: 'member' } : null;
+    },
+    async scriptsOf(projectId) {
+      const all = await LDB.all('scripts');
+      return all
+        .filter((s) => s.project_id === projectId)
+        .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+    },
+    async membersOf(projectId) {
+      const all = await LDB.all('members');
+      return all.filter((m) => m.project_id === projectId);
+    },
+    canManage(role, user) {
+      return role === 'owner' || user.role === 'super_admin';
+    },
+    // Kolom metadata-saja (tanpa content) — kontrak daftar naskah server.
+    meta(s) {
+      return {
+        id: s.id,
+        title: s.title,
+        words_per_minute: s.words_per_minute,
+        word_count: s.word_count,
+        created_by: s.created_by,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+      };
+    },
+    async call(method, path, body) {
+      method = String(method || 'GET').toUpperCase();
+      let m;
+
+      // ----- Autentikasi -----
+      if (path === '/auth/me') {
+        const u = this.currentUser();
+        return { user: u ? this.publicUser(u) : null, needsSetup: this.users().length === 0 };
+      }
+      if (path === '/auth/setup' && method === 'POST') {
+        if (this.users().length) throw localErr(403, 'forbidden', 'Inisialisasi sudah selesai. Silakan masuk.');
+        const username = localValidUsername(body && body.username);
+        const password = localValidPassword(body && body.password);
+        const display_name = localOptStr(body && body.display_name, 'nama tampilan', 60) || username;
+        const email = localValidEmail(body && body.email);
+        const now = this.now();
+        const u = {
+          id: this.nextId(),
+          username,
+          email,
+          display_name,
+          password_hash: await localHashPassword(password),
+          role: 'super_admin',
+          is_active: true,
+          created_at: now,
+          last_login_at: now,
+        };
+        this.saveUsers([u]);
+        LR.set('session', { user_id: u.id, ts: Date.now() });
+        return { user: this.publicUser(u) };
+      }
+      if (path === '/auth/login' && method === 'POST') {
+        const username = localValidUsername(body && body.username);
+        const password = typeof (body && body.password) === 'string' ? body.password : '';
+        const list = this.users();
+        const u = list.find((x) => x.username === username);
+        const ok = u ? await localVerifyPassword(password, u.password_hash) : false;
+        if (!u || !ok || !u.is_active) throw localErr(401, 'auth', 'Username atau kata sandi salah.');
+        u.last_login_at = this.now();
+        this.saveUsers(list);
+        LR.set('session', { user_id: u.id, ts: Date.now() });
+        return { user: this.publicUser(u) };
+      }
+      if (path === '/auth/password' && method === 'POST') {
+        const me = this.requireUser();
+        const current = typeof (body && body.current) === 'string' ? body.current : '';
+        const next = localValidPassword(body && body.next);
+        if (!(await localVerifyPassword(current, me.password_hash)))
+          throw localErr(401, 'auth', 'Kata sandi saat ini salah.');
+        const list = this.users();
+        const u = list.find((x) => x.id === me.id);
+        u.password_hash = await localHashPassword(next);
+        this.saveUsers(list);
+        return { changed: true };
+      }
+      if (path === '/auth/logout' && method === 'POST') {
+        LR.del('session');
+        return { loggedOut: true };
+      }
+
+      // ----- Proyek -----
+      if (path === '/projects' && method === 'GET') {
+        const me = this.requireUser();
+        const [projects, scripts, members] = [await LDB.all('projects'), await LDB.all('scripts'), await LDB.all('members')];
+        const users = this.users();
+        const roleOf = (p) => {
+          if (p.owner_id === me.id) return 'owner';
+          if (me.role === 'super_admin') return members.some((mm) => mm.project_id === p.id && mm.user_id === me.id) ? 'member' : 'viewer';
+          return 'member';
+        };
+        return {
+          projects: projects
+            .filter(
+              (p) =>
+                me.role === 'super_admin' ||
+                p.owner_id === me.id ||
+                members.some((mm) => mm.project_id === p.id && mm.user_id === me.id)
+            )
+            .map((p) => {
+              const owner = users.find((u) => u.id === p.owner_id) || {};
+              return {
+                id: p.id,
+                name: p.name,
+                description: p.description,
+                status: p.status,
+                owner_id: p.owner_id,
+                created_at: p.created_at,
+                updated_at: p.updated_at,
+                owner_username: owner.username || '?',
+                owner_name: owner.display_name || '?',
+                script_count: scripts.filter((s) => s.project_id === p.id).length,
+                member_count: members.filter((mm) => mm.project_id === p.id).length,
+                my_role: roleOf(p),
+              };
+            })
+            .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))),
+        };
+      }
+      if (path === '/projects' && method === 'POST') {
+        const me = this.requireUser();
+        const name = localReqStr(body && body.name, 'nama proyek', 2, 120);
+        const description = localOptStr(body && body.description, 'deskripsi', 600);
+        // Guard kirim-ganda (15 detik) — kontrak sama dengan server.
+        const cutoff = Date.now() - 15000;
+        const recent = (await LDB.all('projects')).find(
+          (p) => p.owner_id === me.id && p.name === name && Date.parse(p.created_at) > cutoff
+        );
+        if (recent) return { project: recent };
+        const now = this.now();
+        const project = {
+          id: this.nextId(),
+          name,
+          description,
+          owner_id: me.id,
+          status: 'active',
+          created_at: now,
+          updated_at: now,
+          sync: null,
+        };
+        await LDB.put('projects', project);
+        return { project };
+      }
+      if ((m = path.match(/^\/projects\/(\d+)$/))) {
+        const projectId = Number(m[1]);
+        if (method === 'GET') {
+          const me = this.requireUser();
+          const acc = await this.accessProject(projectId, me);
+          if (!acc) throw localErr(404, 'not_found', 'Proyek tidak ditemukan atau Anda tidak punya akses.');
+          const users = this.users();
+          const owner = users.find((u) => u.id === acc.project.owner_id) || { username: '?', display_name: '?' };
+          return {
+            project: acc.project,
+            scripts: (await this.scriptsOf(projectId)).map((s) => this.meta(s)),
+            members: (await this.membersOf(projectId)).map((mm) => {
+              const u = users.find((x) => x.id === mm.user_id) || {};
+              return {
+                user_id: mm.user_id,
+                member_role: 'member',
+                added_at: mm.added_at,
+                username: u.username || '?',
+                display_name: u.display_name || '?',
+              };
+            }),
+            owner: { username: owner.username, display_name: owner.display_name },
+            my_role: acc.role,
+            can_manage: this.canManage(acc.role, me),
+          };
+        }
+        if (method === 'PATCH' || method === 'DELETE') {
+          const me = this.requireUser();
+          const acc = await this.accessProject(projectId, me);
+          if (!acc) throw localErr(404, 'not_found', 'Proyek tidak ditemukan atau Anda tidak punya akses.');
+          if (!this.canManage(acc.role, me))
+            throw localErr(403, 'forbidden', 'Hanya pemilik proyek atau super admin yang dapat mengubah/menghapus proyek.');
+          if (method === 'DELETE') {
+            for (const s of await this.scriptsOf(projectId)) await LDB.del('scripts', s.id);
+            for (const mm of await this.membersOf(projectId)) await LDB.del('members', mm.key);
+            await LDB.del('projects', projectId);
+            return { deleted: true };
+          }
+          const p = acc.project;
+          if (body.name !== undefined) p.name = localReqStr(body.name, 'nama proyek', 2, 120);
+          if (body.description !== undefined) p.description = localOptStr(body.description, 'deskripsi', 600);
+          if (body.status !== undefined) {
+            if (!['active', 'archived'].includes(body.status)) throw localErr(400, 'validation', 'Status hanya active/archived.');
+            p.status = body.status;
+          }
+          p.updated_at = this.now();
+          await LDB.put('projects', p);
+          return { project: p };
+        }
+      }
+
+      // ----- Anggota proyek -----
+      if ((m = path.match(/^\/projects\/(\d+)\/members$/)) && method === 'POST') {
+        const me = this.requireUser();
+        const projectId = Number(m[1]);
+        const acc = await this.accessProject(projectId, me);
+        if (!acc) throw localErr(404, 'not_found', 'Proyek tidak ditemukan.');
+        if (!this.canManage(acc.role, me))
+          throw localErr(403, 'forbidden', 'Hanya pemilik proyek atau super admin yang dapat menambah anggota.');
+        const username = localValidUsername(body && body.username);
+        const target = this.users().find((x) => x.username === username);
+        if (!target) throw localErr(404, 'not_found', `Pengguna "${username}" tidak ditemukan.`);
+        if (target.id === acc.project.owner_id)
+          throw localErr(409, 'conflict', 'Pemilik proyek tidak perlu ditambahkan sebagai anggota.');
+        const key = projectId + ':' + target.id;
+        if (await LDB.get('members', key)) throw localErr(409, 'conflict', `${username} sudah menjadi anggota.`);
+        await LDB.put('members', { key, project_id: projectId, user_id: target.id, added_at: this.now() });
+        return {
+          user_id: target.id,
+          username: target.username,
+          display_name: target.display_name,
+          member_role: 'member',
+          added_at: this.now(),
+        };
+      }
+      if ((m = path.match(/^\/projects\/(\d+)\/members\/(\d+)$/)) && method === 'DELETE') {
+        const me = this.requireUser();
+        const projectId = Number(m[1]);
+        const targetUserId = Number(m[2]);
+        const acc = await this.accessProject(projectId, me);
+        if (!acc) throw localErr(404, 'not_found', 'Proyek tidak ditemukan.');
+        const selfLeave = targetUserId === me.id && acc.role === 'member';
+        if (!this.canManage(acc.role, me) && !selfLeave)
+          throw localErr(403, 'forbidden', 'Tidak diizinkan menghapus anggota ini.');
+        await LDB.del('members', projectId + ':' + targetUserId);
+        return { removed: true };
+      }
+
+      // ----- Naskah -----
+      if ((m = path.match(/^\/projects\/(\d+)\/scripts$/)) && method === 'POST') {
+        const me = this.requireUser();
+        const projectId = Number(m[1]);
+        const acc = await this.accessProject(projectId, me);
+        if (!acc) throw localErr(404, 'not_found', 'Proyek tidak ditemukan atau Anda tidak punya akses.');
+        const title = localReqStr(body && body.title, 'judul naskah', 2, 120);
+        const content = localOptStr(body && body.content, 'isi naskah', 100000);
+        const wpm = body && body.words_per_minute !== undefined ? localValidWpm(body.words_per_minute) : 140;
+        // Guard kirim-ganda (15 detik) — mencegah naskah dobel (autosave vs Simpan).
+        const cutoff = Date.now() - 15000;
+        const recent = (await this.scriptsOf(projectId)).find(
+          (s) => s.title === title && s.created_by === me.id && Date.parse(s.created_at) > cutoff
+        );
+        if (recent) return { script: this.meta(recent) };
+        const now = this.now();
+        const script = {
+          id: this.nextId(),
+          project_id: projectId,
+          title,
+          content,
+          words_per_minute: wpm,
+          word_count: wordCount(content),
+          created_by: me.id,
+          created_at: now,
+          updated_at: now,
+          sync: null,
+        };
+        await LDB.put('scripts', script);
+        return { script: this.meta(script) };
+      }
+      if ((m = path.match(/^\/scripts\/(\d+)$/))) {
+        const scriptId = Number(m[1]);
+        const me = this.requireUser();
+        const script = await LDB.get('scripts', scriptId);
+        if (!script) throw localErr(404, 'not_found', 'Naskah tidak ditemukan.');
+        const acc = await this.accessProject(script.project_id, me);
+        if (!acc) throw localErr(403, 'forbidden', 'Anda tidak punya akses ke naskah ini.');
+        if (method === 'GET') {
+          return {
+            script,
+            project: acc.project,
+            my_role: acc.role,
+            can_manage: this.canManage(acc.role, me),
+          };
+        }
+        if (method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+          const isOwnerOrAdmin = this.canManage(acc.role, me);
+          const isOwnScript = acc.role === 'member' && script.created_by === me.id;
+          if (!isOwnerOrAdmin && !isOwnScript)
+            throw localErr(403, 'forbidden', 'Anggota hanya dapat mengubah naskah yang dibuatnya sendiri.');
+          if (method === 'DELETE') {
+            if (!isOwnerOrAdmin)
+              throw localErr(403, 'forbidden', 'Hanya pemilik proyek atau super admin yang dapat menghapus naskah.');
+            await LDB.del('scripts', scriptId);
+            return { deleted: true };
+          }
+          if (body.title !== undefined) script.title = localReqStr(body.title, 'judul naskah', 2, 120);
+          if (body.content !== undefined) {
+            script.content = localOptStr(body.content, 'isi naskah', 100000);
+            script.word_count = wordCount(script.content);
+          }
+          if (body.words_per_minute !== undefined) script.words_per_minute = localValidWpm(body.words_per_minute);
+          script.updated_at = this.now();
+          await LDB.put('scripts', script);
+          return { script: this.meta(script) };
+        }
+      }
+
+      // ----- Manajemen pengguna (super admin) -----
+      if (path === '/users' && method === 'GET') {
+        this.requireAdmin();
+        const [projects, members] = [await LDB.all('projects'), await LDB.all('members')];
+        return {
+          users: this
+            .users()
+            .slice()
+            .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+            .map((u) => ({
+              ...this.publicUser(u),
+              projects_owned: projects.filter((p) => p.owner_id === u.id).length,
+              memberships: members.filter((mm) => mm.user_id === u.id).length,
+            })),
+        };
+      }
+      if (path === '/users' && method === 'POST') {
+        this.requireAdmin();
+        const username = localValidUsername(body && body.username);
+        const password = localValidPassword(body && body.password);
+        const display_name = localOptStr(body && body.display_name, 'nama tampilan', 60) || username;
+        const email = localValidEmail(body && body.email);
+        const role = localValidRole(body && body.role);
+        const list = this.users();
+        if (list.some((u) => u.username === username))
+          throw localErr(409, 'conflict', `Username "${username}" sudah dipakai.`);
+        if (email && list.some((u) => u.email === email))
+          throw localErr(409, 'conflict', 'Email sudah dipakai pengguna lain.');
+        const now = this.now();
+        const u = {
+          id: this.nextId(),
+          username,
+          email,
+          display_name,
+          password_hash: await localHashPassword(password),
+          role,
+          is_active: true,
+          created_at: now,
+          last_login_at: null,
+        };
+        list.push(u);
+        this.saveUsers(list);
+        return { user: this.publicUser(u) };
+      }
+      if ((m = path.match(/^\/users\/(\d+)$/)) && (method === 'PATCH' || method === 'PUT')) {
+        const me = this.requireAdmin();
+        const userId = Number(m[1]);
+        const list = this.users();
+        const target = list.find((u) => u.id === userId);
+        if (!target) throw localErr(404, 'not_found', 'Pengguna tidak ditemukan.');
+        if (body.role !== undefined) {
+          const role = localValidRole(body.role);
+          if (target.role === 'super_admin' && role !== 'super_admin' && list.filter((u) => u.role === 'super_admin' && u.is_active).length <= 1)
+            throw localErr(400, 'validation', 'Minimal harus ada satu super admin aktif.');
+          if (target.id === me.id && role !== 'super_admin')
+            throw localErr(400, 'validation', 'Tidak dapat menurunkan peran Anda sendiri.');
+          target.role = role;
+        }
+        if (body.display_name !== undefined)
+          target.display_name = localOptStr(body.display_name, 'nama tampilan', 60) || target.username;
+        if (body.email !== undefined) {
+          const email = localValidEmail(body.email);
+          if (email && email !== target.email && list.some((u) => u.email === email && u.id !== userId))
+            throw localErr(409, 'conflict', 'Email sudah dipakai pengguna lain.');
+          target.email = email;
+        }
+        if (body.is_active !== undefined) {
+          const active = !!body.is_active;
+          if (target.is_active && !active && target.id === me.id)
+            throw localErr(400, 'validation', 'Tidak dapat menonaktifkan akun Anda sendiri.');
+          if (!active && target.role === 'super_admin' && list.filter((u) => u.role === 'super_admin' && u.is_active).length <= 1)
+            throw localErr(400, 'validation', 'Minimal harus ada satu super admin aktif.');
+          target.is_active = active;
+        }
+        if (body.password !== undefined && body.password !== '')
+          target.password_hash = await localHashPassword(localValidPassword(body.password));
+        this.saveUsers(list);
+        return { user: this.publicUser(target) };
+      }
+      if ((m = path.match(/^\/users\/(\d+)$/)) && method === 'DELETE') {
+        const me = this.requireAdmin();
+        const userId = Number(m[1]);
+        if (userId === me.id) throw localErr(400, 'validation', 'Tidak dapat menghapus akun Anda sendiri.');
+        const list = this.users();
+        const target = list.find((u) => u.id === userId);
+        if (!target) throw localErr(404, 'not_found', 'Pengguna tidak ditemukan.');
+        if (target.role === 'super_admin' && list.filter((u) => u.role === 'super_admin' && u.is_active).length <= 1)
+          throw localErr(400, 'validation', 'Minimal harus ada satu super admin.');
+        // Hapus data milik pengguna (kontrak server): proyek + naskah + keanggotaan.
+        for (const p of (await LDB.all('projects')).filter((p) => p.owner_id === userId)) {
+          for (const s of await this.scriptsOf(p.id)) await LDB.del('scripts', s.id);
+          for (const mm of await this.membersOf(p.id)) await LDB.del('members', mm.key);
+          await LDB.del('projects', p.id);
+        }
+        for (const mm of (await LDB.all('members')).filter((x) => x.user_id === userId)) await LDB.del('members', mm.key);
+        this.saveUsers(list.filter((u) => u.id !== userId));
+        return { deleted: true };
+      }
+
+      // ----- Statistik (super admin) -----
+      if (path === '/stats' && method === 'GET') {
+        this.requireAdmin();
+        const [projects, scripts] = [await LDB.all('projects'), await LDB.all('scripts')];
+        return {
+          stats: {
+            users: this.users().length,
+            projects: projects.length,
+            scripts: scripts.length,
+            active_sessions: this.currentUser() ? 1 : 0,
+          },
+        };
+      }
+
+      throw localErr(404, 'not_found', `Endpoint ${method} ${path} tidak ditemukan.`);
+    },
+  };
+
+  // ---------- Sinkronisasi opsional ke server (mode perangkat) ----------
+  // Data utama tetap tersimpan di perangkat; sinkron menyalin proyek & naskah
+  // dua arah dengan server (Unduh = data server menang, Unggah = data perangkat
+  // menang) agar naskah tetap bisa dilanjutkan di versi web. Aturan:
+  //  - pasangan lokal-server dilacak lewat bidang sync.serverId;
+  //  - hanya naskah yang berubah sejak sinkron terakhir yang dikirim (hemat kuota);
+  //  - error per item tidak menghentikan sisanya — dilaporkan sebagai ringkasan.
+  const Sync = {
+    server() {
+      const saved = LR.get('syncserver', '');
+      if (saved) return saved;
+      // Pengembangan/pengujian (localhost): worker lokal di origin yang sama.
+      // Produksi (APK): server resmi Basarang.
+      if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return location.origin;
+      return 'https://basarang.synclicen.workers.dev';
+    },
+    acc() {
+      return LR.get('sync', null);
+    },
+    clearAcc() {
+      LR.del('sync');
+    },
+    async _fetch(method, path, body, token) {
+      let res;
+      try {
+        res = await fetch(this.server() + '/api' + path, {
+          method,
+          headers: {
+            'content-type': 'application/json',
+            ...(token ? { authorization: 'Bearer ' + token } : {}),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch {
+        throw localErr(0, 'offline', 'Tidak dapat terhubung ke server — periksa koneksi internet Anda.');
+      }
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        /* kosong */
+      }
+      if (!res.ok || !data || data.ok === false) {
+        throw localErr(res.status, (data && data.error) || 'sync', (data && data.message) || 'Gagal terhubung ke server (' + res.status + ').');
+      }
+      return data.data;
+    },
+    async login(username, password) {
+      const d = await this._fetch('POST', '/auth/login', { username, password });
+      if (!d || !d.token) throw localErr(500, 'sync', 'Server tidak mengembalikan token sinkron.');
+      LR.set('sync', { username: d.user.username, display_name: d.user.display_name, token: d.token, ts: Date.now() });
+      return d.user;
+    },
+    // Unduh: salin semua proyek & naskah dari server ke penyimpanan perangkat.
+    async download() {
+      LocalApi.requireUser();
+      const acc = this.acc();
+      if (!acc) throw localErr(401, 'sync_auth', 'Hubungkan akun server dulu.');
+      let nProj = 0;
+      let nScript = 0;
+      let errors = 0;
+      const { projects } = await this._fetch('GET', '/projects', undefined, acc.token);
+      for (const sp of projects || []) {
+        try {
+          let p = (await LDB.all('projects')).find((x) => x.sync && x.sync.serverId === sp.id);
+          if (!p) {
+            p = {
+              id: LocalApi.nextId(),
+              name: sp.name,
+              description: sp.description,
+              status: sp.status,
+              owner_id: LocalApi.requireUser().id,
+              created_at: sp.created_at,
+              updated_at: sp.updated_at,
+              sync: { serverId: sp.id },
+            };
+            nProj++;
+          } else {
+            p.name = sp.name;
+            p.description = sp.description;
+            p.status = sp.status;
+            p.updated_at = sp.updated_at;
+          }
+          await LDB.put('projects', p);
+          const det = await this._fetch('GET', '/projects/' + sp.id, undefined, acc.token);
+          for (const ss of det.scripts || []) {
+            try {
+              let s = (await LDB.all('scripts')).find((x) => x.sync && x.sync.serverId === ss.id);
+              if (s && Date.parse(s.updated_at) >= Date.parse(ss.updated_at)) continue; // lokal lebih baru/sama
+              const full = await this._fetch('GET', '/scripts/' + ss.id, undefined, acc.token);
+              const f = full.script;
+              if (!s) {
+                s = {
+                  id: LocalApi.nextId(),
+                  project_id: p.id,
+                  title: f.title,
+                  content: f.content || '',
+                  words_per_minute: f.words_per_minute || 140,
+                  word_count: f.word_count != null ? f.word_count : wordCount(f.content),
+                  created_by: LocalApi.requireUser().id,
+                  created_at: f.created_at,
+                  updated_at: f.updated_at,
+                  sync: { serverId: ss.id },
+                };
+                nScript++;
+              } else {
+                s.project_id = p.id;
+                s.title = f.title;
+                s.content = f.content || '';
+                s.words_per_minute = f.words_per_minute || 140;
+                s.word_count = f.word_count != null ? f.word_count : wordCount(f.content);
+                s.updated_at = f.updated_at;
+              }
+              await LDB.put('scripts', s);
+            } catch (e) {
+              errors++;
+              console.error('sinkron unduh naskah gagal:', e && e.message);
+            }
+          }
+        } catch (e) {
+          errors++;
+          console.error('sinkron unduh proyek gagal:', e && e.message);
+        }
+      }
+      return { projects: nProj, scripts: nScript, errors };
+    },
+    // Unggah: kirim semua proyek & naskah perangkat yang berubah sejak sinkron
+    // terakhir (atau belum pernah ada) ke server.
+    async upload() {
+      LocalApi.requireUser();
+      const acc = this.acc();
+      if (!acc) throw localErr(401, 'sync_auth', 'Hubungkan akun server dulu.');
+      let nProj = 0;
+      let nScript = 0;
+      let errors = 0;
+      const projects = await LDB.all('projects');
+      for (const p of projects) {
+        try {
+          if (!p.sync || !p.sync.serverId) {
+            const d = await this._fetch('POST', '/projects', { name: p.name, description: p.description }, acc.token);
+            p.sync = { ...(p.sync || {}), serverId: d.project.id };
+            nProj++;
+          } else if (!p.sync.pushedAt || Date.parse(p.updated_at) > Date.parse(p.sync.pushedAt)) {
+            await this._fetch(
+              'PATCH',
+              '/projects/' + p.sync.serverId,
+              { name: p.name, description: p.description, status: p.status },
+              acc.token
+            );
+          }
+          const scripts = await LocalApi.scriptsOf(p.id);
+          for (const s of scripts) {
+            if (!s.sync || !s.sync.serverId) {
+              const d = await this._fetch(
+                'POST',
+                '/projects/' + p.sync.serverId + '/scripts',
+                { title: s.title, content: s.content, words_per_minute: s.words_per_minute },
+                acc.token
+              );
+              s.sync = { serverId: d.script.id };
+              nScript++;
+            } else if (!s.sync.at || Date.parse(s.updated_at) > Date.parse(s.sync.at)) {
+              await this._fetch(
+                'PUT',
+                '/scripts/' + s.sync.serverId,
+                { title: s.title, content: s.content, words_per_minute: s.words_per_minute },
+                acc.token
+              );
+            }
+            await LDB.put('scripts', s);
+          }
+          p.sync.pushedAt = new Date().toISOString();
+          await LDB.put('projects', p);
+        } catch (e) {
+          errors++;
+          console.error('sinkron unggah gagal:', e && e.message);
+        }
+      }
+      return { projects: nProj, scripts: nScript, errors };
+    },
+  };
+
+  function syncPanel() {
+    const acc = Sync.acc();
+    openModal({
+      title: 'Sinkronisasi Server',
+      bodyHtml: acc
+        ? `
+        <p class="hint" style="margin-top:0">Terhubung sebagai <b>${esc(acc.display_name || acc.username)}</b> (@${esc(acc.username)}).
+        Data utama tetap tersimpan di perangkat ini — sinkron menyalin proyek &amp; naskah ke/dari server agar bisa dilanjutkan di versi web.</p>
+        ${Off.online ? '' : '<div class="off-note">Anda sedang luring — sinkron memerlukan koneksi internet.</div>'}
+        <div class="row" style="gap:10px;flex-wrap:wrap">
+          <button class="btn btn-purple" type="button" id="sync-dl">${I.sync} Unduh dari Server</button>
+          <button class="btn btn-gold" type="button" id="sync-ul">${I.sync} Unggah ke Server</button>
+        </div>
+        <div id="sync-out" class="hint" style="min-height:18px;margin-top:10px"></div>
+        <div class="modal-foot" style="padding:12px 0 0">
+          <button class="btn btn-ghost" type="button" id="sync-out-btn">Keluar Akun Sinkron</button>
+        </div>`
+        : `
+        <p class="hint" style="margin-top:0">Masuk dengan akun server Basarang (versi web) untuk menyalin proyek &amp; naskah dua arah. Akun server dibuat oleh super admin di versi web.</p>
+        <form id="sync-form" novalidate>
+          <label class="field">
+            <span class="label-txt">Username server</span>
+            <input class="input" name="username" autocomplete="username" autocapitalize="none" required>
+          </label>
+          <label class="field">
+            <span class="label-txt">Kata sandi server</span>
+            <input class="input" name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <div class="form-err" id="sync-err"></div>
+          <button class="btn btn-gold btn-block" type="submit">Hubungkan Akun Server</button>
+        </form>`,
+      onMount(root, close) {
+        const form = root.querySelector('#sync-form');
+        if (form) {
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = root.querySelector('#sync-err');
+            errEl.textContent = '';
+            const fd = new FormData(form);
+            const btn = form.querySelector('button[type=submit]');
+            btn.disabled = true;
+            btn.textContent = 'Menghubungkan…';
+            try {
+              const u = await Sync.login(String(fd.get('username') || '').trim().toLowerCase(), String(fd.get('password') || ''));
+              toast('Akun server terhubung: ' + u.display_name, 'ok');
+              close();
+              syncPanel();
+            } catch (err) {
+              errEl.textContent = err.message;
+              btn.disabled = false;
+              btn.textContent = 'Hubungkan Akun Server';
+            }
+          });
+        }
+        const out = root.querySelector('#sync-out');
+        const runBtn = (btn, fn, label) => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = 'Memproses…';
+            out.textContent = 'Menyalin… (mohon tunggu)';
+            out.style.color = '';
+            try {
+              const r = await fn();
+              out.style.color = 'var(--ok)';
+              out.textContent = `Selesai — ${r.projects} proyek & ${r.scripts} naskah diproses${r.errors ? `; ${r.errors} item gagal (lihat konsol)` : ''}.`;
+              toast('Sinkron selesai.', 'ok');
+              render();
+            } catch (err) {
+              out.style.color = 'var(--err)';
+              out.textContent = err.message;
+              btn.disabled = false;
+              btn.textContent = label;
+            }
+          });
+        };
+        const dl = root.querySelector('#sync-dl');
+        const ul = root.querySelector('#sync-ul');
+        if (dl) runBtn(dl, () => Sync.download(), 'Unduh dari Server');
+        if (ul) runBtn(ul, () => Sync.upload(), 'Unggah ke Server');
+        const outBtn = root.querySelector('#sync-out-btn');
+        if (outBtn)
+          outBtn.addEventListener('click', () => {
+            Sync.clearAcc();
+            toast('Akun sinkron diputus.', 'info');
+            close();
+            syncPanel();
+          });
+      },
+    });
+  }
+
   function toast(msg, type = 'info', ms = 2600) {
     const node = el(`<div class="toast ${esc(type)}">${esc(msg)}</div>`);
     $toastRoot.appendChild(node);
@@ -430,7 +1351,10 @@
           <span class="brand-name"><em>BASARANG</em><span class="brand-tail">: Bagarak Saurang</span></span>
         </a>
         <div class="topbar-actions">
-          ${state.luring || !Off.online
+          ${LOCAL
+            ? '<span class="pill pill-ok" title="Mode perangkat — seluruh data tersimpan di perangkat ini tanpa internet; sinkronisasi ke server bersifat opsional">Perangkat</span>' +
+              '<button class="btn btn-ghost btn-sm" id="btn-sync" title="Sinkronisasi opsional dengan server Basarang (butuh internet)">' + I.sync + '<span class="hide-sm">Sinkron</span></button>'
+            : state.luring || !Off.online
             ? '<span class="pill pill-warn" title="Tanpa koneksi — menampilkan data tersimpan di perangkat; perubahan dikirim otomatis saat online">Luring</span>'
             : Off.queue.length
               ? `<span class="pill pill-warn" title="${Off.queue.length} perubahan menunggu terkirim ke server">Kirim tertunda (${Off.queue.length})</span>`
@@ -470,6 +1394,10 @@
     });
     const p = document.getElementById('btn-pass');
     if (p) p.addEventListener('click', () => passwordForm());
+    // Tombol Sinkron (hanya mode perangkat): salin proyek & naskah dua arah
+    // dengan server — opsional, data utama tetap di perangkat.
+    const sb = document.getElementById('btn-sync');
+    if (sb) sb.addEventListener('click', () => syncPanel());
   }
 
   function passwordForm() {
@@ -577,8 +1505,9 @@
           <h1><em>BASARANG</em>: Bagarak Saurang</h1>
           <p class="tag">Inisialisasi pertama — buat akun <b>Super Admin</b> untuk memulai.</p>
           <div class="feature-row">
-            <span class="pill pill-gold">Sinkron lintas perangkat</span>
-            <span class="pill pill-purple">Gratis 100%</span>
+            ${LOCAL
+              ? '<span class="pill pill-gold">Full offline</span><span class="pill pill-purple">Sinkron opsional</span>'
+              : '<span class="pill pill-gold">Sinkron lintas perangkat</span><span class="pill pill-purple">Gratis 100%</span>'}
           </div>
         </div>
         <form class="card" id="setup-form" novalidate>
@@ -660,8 +1589,12 @@
           </label>
           <div class="form-err" id="login-err"></div>
           <button class="btn btn-gold btn-block btn-lg" type="submit">Masuk</button>
-          ${Off.online ? '' : '<p class="hint" style="text-align:center;margin-top:8px;color:var(--gold-2)">Anda sedang luring — masuk memerlukan koneksi internet.</p>'}
-          <p class="hint" style="text-align:center;margin-top:12px">Akun dibuat oleh super admin. Lupa kata sandi? Hubungi pengelola.</p>
+          ${LOCAL
+            ? '<p class="hint" style="text-align:center;margin-top:8px;color:var(--ok)">Mode perangkat — masuk tanpa internet; seluruh data tersimpan di perangkat ini.</p>'
+            : Off.online
+              ? ''
+              : '<p class="hint" style="text-align:center;margin-top:8px;color:var(--gold-2)">Anda sedang luring — masuk memerlukan koneksi internet.</p>'}
+          <p class="hint" style="text-align:center;margin-top:12px">${LOCAL ? 'Akun dibuat oleh super admin di perangkat ini.' : 'Akun dibuat oleh super admin. Lupa kata sandi? Hubungi pengelola.'}</p>
         </form>
       </div>
     </div>`;
@@ -1320,9 +2253,10 @@
           navigate('#/prompter/' + s.id);
         });
 
-        // Flush saat modal ditutup paksa / halaman disembunyikan
+        // Flush saat modal ditutup paksa / halaman disembunyikan.
+        // (Hanya mode web — mode perangkat menyimpan via LocalApi, bukan fetch.)
         const flush = () => {
-          if (dirty && savedId) {
+          if (!LOCAL && dirty && savedId) {
             try {
               fetch('/api/scripts/' + savedId, {
                 method: 'PUT',
@@ -1579,7 +2513,10 @@
     state.booted = true;
     if (!location.hash) location.hash = state.user ? '#/dashboard' : state.needsSetup ? '#/setup' : '#/login';
     render();
-    Off.init();
+    // Antrean sinkron & pemantau online/offline hanya relevan di mode web —
+    // mode perangkat tidak pernah mem-fetch (LocalApi) dan jauh lebih tenang
+    // tanpa toast "Anda luring" yang menyesatkan (aplikasi memang full offline).
+    if (!LOCAL) Off.init();
   }
 
   window.addEventListener('hashchange', () => {

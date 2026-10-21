@@ -36,7 +36,7 @@ OUT=build
 rm -rf "$OUT" out
 mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/stage/assets" out
 
-echo "== 1/6 javac =="
+echo "== 1/7 javac =="
 find src -name '*.java' > "$OUT/sources.txt"
 if ! "$JAVAC_BIN" -source 8 -target 8 -Xlint:-options -encoding UTF-8 \
       -classpath "$PLAT" -d "$OUT/classes" @"$OUT/sources.txt" > "$OUT/javac.log" 2>&1; then
@@ -45,25 +45,32 @@ if ! "$JAVAC_BIN" -source 8 -target 8 -Xlint:-options -encoding UTF-8 \
 fi
 [ -s "$OUT/javac.log" ] && cat "$OUT/javac.log"
 
-echo "== 2/6 d8 (dex) =="
+echo "== 2/7 d8 (dex) =="
 find "$OUT/classes" -name '*.class' > "$OUT/classes.txt"
 ( xargs "$BT/d8" --release --lib "$PLAT" --min-api 24 --output "$OUT/dex" ) < "$OUT/classes.txt"
 
-echo "== 3/6 aapt (paket resource) =="
+echo "== 3/7 aapt (paket resource) =="
 "$BT/aapt" package -f -M AndroidManifest.xml -S res -I "$PLAT" -F "$OUT/unsigned.apk"
 
-echo "== 4/6 masukkan dex + assets =="
+echo "== 4/7 masukkan dex + assets (termasuk aplikasi web www/) =="
 cp "$OUT/dex/classes.dex" "$OUT/stage/"
+# FULL OFFLINE: seluruh aplikasi web dari public/ dibundel sebagai assets/www/ —
+# WebView menyajikannya dari origin https://app.basarang.local (MainActivity).
+mkdir -p "$OUT/stage/assets/www"
+[ -f ../public/index.html ] || { echo "ERROR: ../public/index.html tidak ditemukan — jalankan dari dalam folder android/ repo." >&2; exit 1; }
+cp ../public/* "$OUT/stage/assets/www/"
+[ -f "$OUT/stage/assets/www/app.js" ] || { echo "ERROR: aset web app.js tidak tersalin." >&2; exit 1; }
 cp assets/* "$OUT/stage/assets/"
 (
   cd "$OUT/stage"
-  "$BT/aapt" add ../unsigned.apk classes.dex assets/speech_shim.js assets/offline.html > /dev/null
+  find assets -type f | LC_ALL=C sort > ../files.txt
+  xargs "$BT/aapt" add ../unsigned.apk < ../files.txt > /dev/null
 )
 
-echo "== 5/6 zipalign =="
+echo "== 5/7 zipalign =="
 "$BT/zipalign" -f 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 
-echo "== 6/6 apksigner =="
+echo "== 6/7 apksigner =="
 [ -f keystore.properties ] || { echo "ERROR: keystore.properties tidak ada" >&2; exit 1; }
 . ./keystore.properties
 "$BT/apksigner" sign \
@@ -75,6 +82,7 @@ echo "== 6/6 apksigner =="
 "$BT/apksigner" verify "$APK_OUT"
 
 echo ""
-echo "== SELESAI: $APK_OUT =="
+echo "== SELESAI: $APK_OUT (full offline) =="
 ls -l "$APK_OUT"
 "$BT/aapt" dump badging "$APK_OUT" | head -4
+unzip -l "$APK_OUT" 'assets/*' | tail -15

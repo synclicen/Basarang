@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Basarang — Tidak Terhubung</title>
+<title>Basarang — Gagal Memuat</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; margin: 0; }
@@ -36,12 +36,12 @@
       <path d="M32 38v7M24 45h16" stroke-width="3.4"/>
     </svg>
   </div>
-  <h1>Tidak dapat terhubung</h1>
-  <p>Basarang membutuhkan koneksi internet untuk memuat naskah dan akun. Periksa koneksi Anda, lalu coba lagi.</p>
+  <h1>Aplikasi gagal dimuat</h1>
+  <p>Terjadi kendala saat memuat aplikasi dari paket. Coba lagi — akun, proyek, dan naskah Anda tetap aman di perangkat.</p>
   <button onclick="retry()">Coba Lagi</button>
-  <p class="host">basarang.synclicen.workers.dev</p>
+  <p class="host">Basarang · mode perangkat (offline)</p>
 <script>
-  function retry() { location.replace('https://basarang.synclicen.workers.dev'); }
+  function retry() { location.replace('https://app.basarang.local/'); }
   setTimeout(retry, 15000);
 </script>
 </body>

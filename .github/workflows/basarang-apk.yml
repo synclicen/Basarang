@@ -100,14 +100,14 @@ jobs:
             **Basarang v__VER__** — AI Teleprompter yang mengikuti suara Anda.
             Teleprompter untuk Humas UIN Antasari Banjarmasin; naskah mengikuti suara pembaca, tanpa batas jumlah kata.
 
-            **Baru di 1.1.0 — mode luring:** naskah yang pernah dibuka tersimpan di perangkat; teleprompter tetap bisa dibuka & mode Timer berjalan penuh tanpa internet; mengedit & menyimpan saat offline tersimpan di perangkat dan terkirim otomatis ke server begitu online kembali.
+            **Baru di 1.2.0 — FULL OFFLINE:** aplikasi kini berjalan 100% tanpa internet sejak pertama dipasang. Seluruh aplikasi dibundel di dalam APK; akun, proyek, dan naskah tersimpan di perangkat (mode Perangkat). Sinkronisasi ke server versi web bersifat opsional lewat tombol **Sinkron** (Unduh / Unggah — butuh koneksi internet).
 
             **Cara install (Android 7.0 / Nougat ke atas):**
             1. Unduh berkas `Basarang-v__VER__.apk` di bawah ini langsung dari HP Android.
             2. Buka berkasnya (dari notifikasi unduhan atau aplikasi Files); bila diminta, izinkan *instal aplikasi tidak dikenal* untuk peramban/Files Anda.
-            3. Buka aplikasi **Basarang**, lalu masuk dengan akun Basarang Anda seperti biasa.
+            3. Buka aplikasi **Basarang**, lalu buat akun perangkat pada pemakaian pertama — tidak memerlukan internet.
 
-            Mode **Suara** membutuhkan izin mikrofon serta layanan pengenalan suara Google dan koneksi internet. Mode **Timer** selalu tersedia tanpa mikrofon. Tag `apk` selalu berisi build terbaru.
+            Mode **Suara** membutuhkan izin mikrofon serta layanan pengenalan suara Google (umumnya perlu koneksi internet; sebagian perangkat memiliki paket bahasa luring). Mode **Timer** selalu tersedia sepenuhnya tanpa internet. Tag `apk` selalu berisi build terbaru.
         run: |
           VN="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' android/AndroidManifest.xml)"
           NOTES="$(printf '%s' "$RELEASE_NOTES" | sed "s/__VER__/${VN}/g")"

@@ -17,22 +17,34 @@ import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 
 /**
- * Basarang: Bagarak Saurang — cangkang Android untuk aplikasi web
- * https://basarang.synclicen.workers.dev (Cloudflare Workers + D1).
+ * Basarang: Bagarak Saurang — aplikasi Android FULL OFFLINE.
+ *
+ * Seluruh aplikasi web (HTML/JS/CSS dari public/) dibundel di dalam paket
+ * (assets/www, disalin saat build) dan disajikan WebView dari origin virtual
+ * https://app.basarang.local lewat shouldInterceptRequest — TIDAK ADA
+ * pemuatan dari internet. Origin https agar localStorage, IndexedDB,
+ * crypto.subtle (PBKDF2 akun perangkat), dan getUserMedia berjalan sebagai
+ * secure context. Akun, proyek, dan naskah tersimpan di perangkat;
+ * sinkronisasi ke server basarang.synclicen.workers.dev bersifat opsional
+ * (tombol Sinkron di dalam aplikasi, autentikasi Bearer token).
  *
  * Poin penting stabilitas:
- *  - WebView memuat aplikasi web apa adanya; localStorage aktif (token login
- *    dan pengaturan teleprompter tersimpan).
  *  - WebView Android TIDAK punya Web Speech API. Kelas ini menyediakan
  *    jembatan "NativeSpeech" ke SpeechRecognizer native; halaman web menerima
  *    window.SpeechRecognition lewat assets/speech_shim.js yang disuntikkan
@@ -42,16 +54,21 @@ import java.util.ArrayList;
  *    OS sudah dipegang, sehingga pratinjau kamera & rekaman tetap jalan.
  *  - configChanges mencegah WebView dimuat ulang saat perangkat diputar
  *    (sesi teleprompter dan rekaman tidak terputus).
- *  - Kegagalan jaringan utama menampilkan assets/offline.html dengan tombol
+ *  - Aset selalu tersedia dari paket (tanpa jaringan); bila aset gagal
+ *    disajikan (kasus ekstrem), assets/offline.html tampil dengan tombol
  *    coba lagi + percobaan ulang otomatis tiap 15 detik.
  *  - Tombol kembali: menelusuri riwayat hash SPA; keluar perlu tekan dua kali.
  *  - Layar dijaga tetap menyala hanya saat teleprompter terbuka (dari shim).
  */
 public class MainActivity extends Activity {
 
-    private static final String START_URL = "https://basarang.synclicen.workers.dev";
+    // Origin virtual aplikasi — "host" ini tidak pernah di-resolve DNS karena
+    // SEMUA permintaannya dicegat shouldInterceptRequest dan disajikan dari
+    // assets/www di dalam APK.
+    private static final String START_URL = "https://app.basarang.local/";
+    private static final String LOCAL_HOST = "app.basarang.local";
+    private static final String LEGACY_HOST = "basarang.synclicen.workers.dev"; // versi <= 1.1.0
     private static final String OFFLINE_URL = "file:///android_asset/offline.html";
-    private static final String APP_HOST = "basarang.synclicen.workers.dev";
     private static final int REQ_APP_PERMS = 7001;
     private static final int REQ_WEB_PERM = 7002;
 
@@ -86,13 +103,25 @@ public class MainActivity extends Activity {
                 String url = u.toString();
                 if (url.startsWith("file:///android_asset/")) return false;
                 String scheme = u.getScheme() == null ? "" : u.getScheme();
-                if (("https".equals(scheme) || "http".equals(scheme)) && APP_HOST.equals(u.getHost())) {
+                String host = u.getHost() == null ? "" : u.getHost();
+                if (("https".equals(scheme) || "http".equals(scheme))
+                        && (LOCAL_HOST.equals(host) || LEGACY_HOST.equals(host))) {
                     return false; // muat di dalam aplikasi
                 }
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, u)); // tautan luar → peramban
                 } catch (Exception ignored) { }
                 return true;
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
+                // FULL OFFLINE: semua aset aplikasi disajikan dari dalam paket.
+                Uri u = req.getUrl();
+                if ("https".equals(u.getScheme()) && LOCAL_HOST.equals(u.getHost())) {
+                    return serveLocalAsset(u);
+                }
+                return super.shouldInterceptRequest(view, req);
             }
 
             @Override
@@ -125,11 +154,69 @@ public class MainActivity extends Activity {
 
         if (savedInstanceState == null) {
             web.loadUrl(START_URL);
-        } else if (web.restoreState(savedInstanceState) == null) {
+        } else if (web.restoreState(savedInstanceState) == null || !isAppUrl(web.getUrl())) {
+            // Status tersimpan berasal dari versi lama (workers.dev) → mulai dari aset lokal.
             web.loadUrl(START_URL);
         }
 
         requestAppPermissions();
+    }
+
+    /* ---------- penyaji aset web dari dalam paket (full offline) ---------- */
+
+    private WebResourceResponse serveLocalAsset(Uri u) {
+        String path = u.getPath();
+        if (path == null || path.isEmpty() || "/".equals(path)) path = "/index.html";
+        // Sanitasi: tolak traversal direktori.
+        if (path.indexOf("..") >= 0 || path.indexOf('\\') >= 0) return localAsset404();
+        try {
+            InputStream in = getAssets().open("www" + path);
+            WebResourceResponse res = new WebResourceResponse(mimeOf(path), "utf-8", in);
+            res.setStatusCodeAndReasonPhrase(200, "OK");
+            Map<String, String> headers = new HashMap<>();
+            headers.put("cache-control", "no-store"); // satu versi aset per APK — selalu segar
+            res.setResponseHeaders(headers);
+            return res;
+        } catch (IOException e) {
+            return localAsset404();
+        }
+    }
+
+    private static WebResourceResponse localAsset404() {
+        WebResourceResponse res = new WebResourceResponse(
+                "text/plain", "utf-8", new ByteArrayInputStream(new byte[0]));
+        res.setStatusCodeAndReasonPhrase(404, "Not Found");
+        return res;
+    }
+
+    private static String mimeOf(String path) {
+        int dot = path.lastIndexOf('.');
+        String ext = dot < 0 ? "" : path.substring(dot + 1).toLowerCase(Locale.ROOT);
+        switch (ext) {
+            case "html": case "htm": return "text/html";
+            case "css": return "text/css";
+            case "js": case "mjs": return "application/javascript";
+            case "svg": return "image/svg+xml";
+            case "png": return "image/png";
+            case "jpg": case "jpeg": return "image/jpeg";
+            case "webp": return "image/webp";
+            case "ico": return "image/x-icon";
+            case "json": return "application/json";
+            case "webmanifest": return "application/manifest+json";
+            case "woff": return "font/woff";
+            case "woff2": return "font/woff2";
+            case "txt": return "text/plain";
+            default: return "application/octet-stream";
+        }
+    }
+
+    private static boolean isAppUrl(String url) {
+        try {
+            Uri u = Uri.parse(url == null ? "" : url);
+            return u != null && "https".equals(u.getScheme()) && LOCAL_HOST.equals(u.getHost());
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /* ---------- siklus hidup ---------- */

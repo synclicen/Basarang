@@ -96,6 +96,17 @@ function requireAdmin(user) {
 
 // ---------- CSRF: origin & sec-fetch-site ----------
 
+// Origin aplikasi Android (APK): aset web dibundel di dalam paket dan disajikan
+// WebView dari https://app.basarang.local. Permintaan API dari origin ini
+// (sinkronisasi opsional) dilewati dari guard CSRF: WebView APK tidak mengirim
+// cookie workers.dev lintas origin (fetch tanpa credentials:'include' + cookie
+// SameSite=Lax), dan autentikasinya memakai Bearer token yang eksplisit.
+const APP_ORIGINS = ['https://app.basarang.local'];
+
+export function isAppOrigin(request) {
+  return APP_ORIGINS.includes(request.headers.get('origin') || '');
+}
+
 function assertSameOrigin(request, url) {
   const method = request.method.toUpperCase();
   if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return;
@@ -177,8 +188,13 @@ function publicUser(u) {
 
 export async function handleApi(request, env, url) {
   const db = env.DB;
-  assertSameOrigin(request, url);
-  const user = await auth.getSessionUser(db, request);
+  // Bearer token (aplikasi Android) atau origin APK: tanpa guard CSRF cookie.
+  let user = await auth.getBearerUser(db, request);
+  if (!user) {
+    const fromApp = isAppOrigin(request) || !!request.headers.get('authorization');
+    if (!fromApp) assertSameOrigin(request, url);
+    user = await auth.getSessionUser(db, request);
+  }
 
   const path = url.pathname.replace(/\/+$/, '') || '/';
   const method = request.method.toUpperCase();
@@ -220,7 +236,7 @@ export async function handleApi(request, env, url) {
     const userId = Number(res[1].meta.last_row_id);
     const token = await auth.createSession(db, userId, request.headers.get('user-agent'));
     return json(
-      { ok: true, data: { user: { id: userId, username, email, display_name: displayName, role: 'super_admin' } } },
+      { ok: true, data: { user: { id: userId, username, email, display_name: displayName, role: 'super_admin' }, token } },
       201,
       { 'set-cookie': auth.sessionCookieHeader(token, auth.SESSION_TTL_SEC) }
     );
@@ -248,7 +264,9 @@ export async function handleApi(request, env, url) {
     await db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').bind(nowIso(), row.id).run();
     const token = await auth.createSession(db, row.id, request.headers.get('user-agent'));
     return json(
-      { ok: true, data: { user: publicUser({ ...row, last_login_at: nowIso() }) } },
+      // token ikut dikirim agar klien non-cookie (APK, sinkronisasi) bisa memakai
+      // sesi yang sama; klien web mengabaikannya (sesi tetap via cookie HttpOnly).
+      { ok: true, data: { user: publicUser({ ...row, last_login_at: nowIso() }), token } },
       200,
       { 'set-cookie': auth.sessionCookieHeader(token, auth.SESSION_TTL_SEC) }
     );

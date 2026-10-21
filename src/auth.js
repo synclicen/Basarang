@@ -111,6 +111,21 @@ export async function getSessionUser(db, request) {
   const cookies = parseCookies(request.headers.get('cookie'));
   const token = cookies[SESSION_COOKIE];
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
+  return sessionUserByToken(db, token);
+}
+
+// Autentikasi via header "Authorization: Bearer <token>" — dipakai aplikasi
+// Android (APK menyajikan aset dari origin lokal https://app.basarang.local)
+// untuk sinkronisasi opsional lintas origin. Bukan kredensial ambient (bukan
+// cookie) sehingga bebas CSRF; token dipegang eksplisit oleh pemanggil.
+export async function getBearerUser(db, request) {
+  const h = request.headers.get('authorization') || '';
+  const m = h.match(/^Bearer ([0-9a-f]{64})$/i);
+  if (!m) return null;
+  return sessionUserByToken(db, m[1].toLowerCase());
+}
+
+async function sessionUserByToken(db, token) {
   const row = await db
     .prepare(
       `SELECT u.id, u.username, u.email, u.display_name, u.role, u.is_active, u.last_login_at,

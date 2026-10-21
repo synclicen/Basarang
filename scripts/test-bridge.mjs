@@ -9,6 +9,10 @@
 //   4. Exit prompter → stop() dipanggil (mikrofon dilepas)
 //   5. keepAwake(true) saat prompter terbuka, false setelah keluar
 //   6. Mode Timer tetap normal (regresi)
+//   7. MODE PERANGKAT (APK v1.2.0 full offline): konteks bersih + jaringan
+//      diputus total → inisialisasi akun, proyek, naskah, teleprompter, keluar,
+//      masuk kembali — semuanya TANPA satu pun permintaan /api ke server;
+//      lalu sinkronisasi opsional dua arah (Unduh/Unggah) saat online.
 //
 // Jalankan: node scripts/test-bridge.mjs
 // (butuh modul playwright global + worker + mock D1 — tanpa jaringan luar)
@@ -422,6 +426,184 @@ console.log('— Server "sakit" (kuota tulis D1 habis): antrean tak dibuang —'
   check('server pulih: antrean terkirim otomatis (kosong)', q3.length === 0, JSON.stringify(q3));
   const d2 = await api('GET', '/api/scripts/' + globalThis.__SID, null, globalThis.__COOKIE);
   check('server pulih: isi hasil edit saat server sakit diterima (cocok)', d2.data?.data?.script?.content === ISI_SAKIT);
+}
+
+console.log('— Mode perangkat (APK full offline): dari nol, jaringan diputus total —');
+{
+  // Simulasi APK v1.2.0 pada HP tanpa internet: konteks penyimpanan BERSIH,
+  // ?lokal=1 mengaktifkan mode perangkat (di APK: origin app.basarang.local).
+  // Service worker berperan sebagai pengganti "aset yang dibundel di dalam APK".
+  const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const p2 = await ctx2.newPage();
+  let apiHits = 0;
+  p2.on('request', (r) => {
+    if (r.url().includes('/api/')) apiHits++;
+  });
+  p2.on('pageerror', (e) => console.error('  [pageerror-lokal]', e.message));
+
+  await p2.goto(BASE + '/?lokal=1', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  const swReady = await p2.evaluate(async () => {
+    if (!('serviceWorker' in navigator)) return false;
+    const reg = await navigator.serviceWorker.ready;
+    return !!reg.active;
+  });
+  check('mode perangkat: shell termuat & service worker siap (pengganti aset APK)', swReady);
+
+  // PUTUS JARINGAN SEPENUHNYA — persis HP tanpa sinyal sejak awal.
+  await ctx2.setOffline(true);
+  await p2.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+  await p2.waitForSelector('#setup-form', { timeout: 15000 });
+  check('APK offline: aplikasi terbuka & meminta inisialisasi akun perangkat', true);
+
+  await p2.fill('#setup-form input[name=display_name]', 'Humas Perangkat');
+  await p2.fill('#setup-form input[name=username]', 'humas');
+  await p2.fill('#setup-form input[name=password]', 'sandi-perangkat-2026');
+  await p2.click('#setup-form button[type=submit]');
+  await p2.waitForFunction(() => location.hash === '#/dashboard', null, { timeout: 15000 });
+  check('APK offline: akun super admin perangkat dibuat (PBKDF2 lokal, tanpa server)', true);
+
+  const tbL = await p2.textContent('.topbar').catch(() => '');
+  check('APK offline: pil "Perangkat" tampil di topbar', tbL.includes('Perangkat'), tbL.slice(0, 80).trim());
+  check('APK offline: tombol Sinkron opsional tampil di topbar', !!(await p2.$('#btn-sync')));
+
+  // Buat proyek + naskah sepenuhnya offline.
+  await p2.click('#btn-new-proj');
+  await p2.waitForSelector('#proj-form input[name=name]', { timeout: 15000 });
+  await p2.fill('#proj-form input[name=name]', 'Proyek Luring');
+  await p2.fill('#proj-form textarea[name=description]', 'dibuat tanpa internet');
+  await p2.click('#proj-form button[type=submit]');
+  await p2.waitForSelector('#dash-projects .proj-card', { timeout: 15000 });
+  check('APK offline: proyek dibuat di penyimpanan perangkat (IndexedDB)', true);
+
+  await p2.click('#dash-projects .proj-card');
+  await p2.waitForSelector('#btn-new-script', { timeout: 15000 });
+  await p2.click('#btn-new-script');
+  await p2.waitForSelector('#content-ta', { timeout: 15000 });
+  await p2.fill('#script-form input[name=title]', 'Naskah Tanpa Internet');
+  const ISI_LOKAL =
+    'Naskah ini ditulis sepenuhnya tanpa koneksi internet di mode perangkat Basarang. Setiap kata tersimpan aman di penyimpanan perangkat dan teleprompter tetap berjalan penuh meski jaringan mati total.';
+  await p2.fill('#content-ta', ISI_LOKAL);
+  await p2.click('#script-form button[type=submit]');
+  await p2.waitForSelector('[data-edit]', { timeout: 15000 });
+  check('APK offline: naskah tersimpan & muncul di daftar proyek', true);
+
+  // Isi naskah utuh di IndexedDB perangkat.
+  const inDb = await p2.evaluate(async () => {
+    return await new Promise((resolve) => {
+      const rq = indexedDB.open('basarang-local');
+      rq.onsuccess = () => {
+        try {
+          const db = rq.result;
+          const tx = db.transaction('scripts', 'readonly');
+          const req = tx.objectStore('scripts').getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      };
+      rq.onerror = () => resolve(null);
+    });
+  });
+  check(
+    'APK offline: isi naskah utuh byte-per-byte di IndexedDB perangkat',
+    Array.isArray(inDb) && inDb.length === 1 && inDb[0].content === ISI_LOKAL,
+    JSON.stringify((inDb || []).map((s) => s && s.title))
+  );
+
+  // Teleprompter mode Timer menggulir tanpa internet.
+  await p2.evaluate(() =>
+    localStorage.setItem('basarang.prompter', JSON.stringify({ mode: 'timer', fontSize: 1.6, wpm: 200, speed: 2 }))
+  );
+  const sidLokal = Array.isArray(inDb) && inDb[0] ? inDb[0].id : null;
+  await p2.evaluate((id) => {
+    location.hash = '#/prompter/' + id;
+  }, sidLokal);
+  await p2.waitForSelector('#p-play', { timeout: 15000 });
+  const t0 = await p2.evaluate(() => document.getElementById('p-scroll').scrollTop);
+  await p2.evaluate(() => document.getElementById('p-play').click());
+  await sleep(4600);
+  const t1 = await p2.evaluate(() => document.getElementById('p-scroll').scrollTop);
+  check('APK offline: teleprompter mode Timer menggulir tanpa internet', t1 > t0, `${t0} → ${t1}`);
+  await p2.evaluate(() => document.getElementById('p-exit').click());
+  await sleep(400);
+
+  // Keluar → masuk kembali: akun & data perangkat TIDAK hilang saat logout.
+  await p2.evaluate(() => {
+    location.hash = '#/dashboard';
+  });
+  await p2.waitForSelector('#btn-logout', { timeout: 15000 });
+  await p2.click('#btn-logout');
+  await p2.waitForSelector('#login-form input[name=username]', { timeout: 15000 });
+  check('APK offline: keluar → halaman masuk (akun perangkat tetap ada)', true);
+
+  await p2.fill('#login-form input[name=username]', 'humas');
+  await p2.fill('#login-form input[name=password]', 'sandi-perangkat-2026');
+  await p2.click('#login-form button[type=submit]');
+  await p2.waitForFunction(() => location.hash === '#/dashboard', null, { timeout: 15000 });
+  const kartu = await p2.$$eval('#dash-projects .proj-card h3', (ns) => ns.map((n) => n.textContent));
+  check('APK offline: masuk kembali → data perangkat utuh (proyek tampil)', kartu.includes('Proyek Luring'), JSON.stringify(kartu));
+
+  check(
+    'APK offline: TIDAK ADA satu pun permintaan /api ke server sepanjang alur',
+    apiHits === 0,
+    'apiHits=' + apiHits
+  );
+
+  // Sinkronisasi opsional: online kembali → hubungkan akun server → Unduh & Unggah.
+  await ctx2.setOffline(false);
+  await sleep(400);
+  await p2.click('#btn-sync');
+  await p2.waitForSelector('#sync-form', { timeout: 15000 });
+  await p2.fill('#sync-form input[name=username]', 'fajrianor');
+  await p2.fill('#sync-form input[name=password]', 'rahasia-kuat-2026');
+  await p2.click('#sync-form button[type=submit]');
+  await p2.waitForSelector('#sync-dl', { timeout: 15000 });
+  check('APK: akun server terhubung utk sinkronisasi opsional', true);
+
+  // Unduh: proyek server tersalin ke penyimpanan perangkat.
+  await p2.click('#sync-dl');
+  await p2.waitForFunction(
+    () => ((document.getElementById('sync-out') || {}).textContent || '').includes('Selesai'),
+    null,
+    { timeout: 30000 }
+  );
+  const kartu2 = await p2.$$eval('#dash-projects .proj-card h3', (ns) => ns.map((n) => n.textContent));
+  check('APK sinkron Unduh: proyek server muncul di perangkat', kartu2.includes('Uji APK'), JSON.stringify(kartu2));
+
+  // Unggah: proyek & naskah perangkat terkirim ke server.
+  await p2.click('#sync-ul');
+  await p2.waitForFunction(
+    () => ((document.getElementById('sync-out') || {}).textContent || '').includes('Selesai'),
+    null,
+    { timeout: 30000 }
+  );
+  const plist = await api('GET', '/api/projects', null, globalThis.__COOKIE);
+  const projectsServer = ((plist.data || {}).data || {}).projects || [];
+  check(
+    'APK sinkron Unggah: proyek perangkat sampai ke server',
+    projectsServer.some((p) => p.name === 'Proyek Luring'),
+    JSON.stringify(projectsServer.map((p) => p.name))
+  );
+  const pLuring = projectsServer.find((p) => p.name === 'Proyek Luring');
+  if (pLuring) {
+    const det = await api('GET', '/api/projects/' + pLuring.id, null, globalThis.__COOKIE);
+    const scripts = ((det.data || {}).data || {}).scripts || [];
+    const sk = scripts.find((s) => s.title === 'Naskah Tanpa Internet');
+    check('APK sinkron Unggah: naskah perangkat ikut terkirim', !!sk, JSON.stringify(scripts.map((s) => s.title)));
+    if (sk) {
+      const sd = await api('GET', '/api/scripts/' + sk.id, null, globalThis.__COOKIE);
+      const isi = ((sd.data || {}).data || {}).script || {};
+      check('APK sinkron Unggah: isi naskah cocok byte-per-byte di server', isi.content === ISI_LOKAL);
+    } else {
+      check('APK sinkron Unggah: isi naskah cocok byte-per-byte di server', false, 'naskah tak ditemukan');
+    }
+  } else {
+    check('APK sinkron Unggah: naskah perangkat ikut terkirim', false, 'proyek tak ditemukan');
+    check('APK sinkron Unggah: isi naskah cocok byte-per-byte di server', false, 'proyek tak ditemukan');
+  }
+
+  await ctx2.close();
 }
 
 // ---------- Rapikan ----------

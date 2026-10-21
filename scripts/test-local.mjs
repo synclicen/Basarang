@@ -786,6 +786,107 @@ console.log('— Kuota tulis D1 habis (insiden nyata 21 Okt 2026): 503 jelas, ba
   check('app.js: doSave mengantre saat server sibuk (hint "server pulih")', a.includes('terkirim otomatis saat server pulih'));
 }
 
+console.log('— Aplikasi Android (APK full offline): marker, token Bearer, CORS —');
+{
+  // ---- Marker statis: mode perangkat (LocalApi) di app.js & index.html ----
+  const jsQ = await req(null, 'GET', '/app.js');
+  const a = (await jsQ.res.text()) || '';
+  const htmlQ = await req(null, 'GET', '/');
+  const html = htmlQ.text || '';
+
+  check(
+    'app.js: mode perangkat aktif di origin APK + escape pengujian localhost',
+    a.includes("location.hostname === 'app.basarang.local'") && a.includes("new URLSearchParams(location.search).get('lokal') === '1'")
+  );
+  check(
+    'app.js: api() mode perangkat dilayani LocalApi (tanpa fetch/jaringan)',
+    a.includes('if (LOCAL) {') && a.includes("return LocalApi.call(opts.method || 'GET', path, opts.body);")
+  );
+  check(
+    'app.js: LocalApi menyediakan setup/login/logout/password perangkat',
+    a.includes("path === '/auth/setup'") && a.includes("path === '/auth/login'") && a.includes("path === '/auth/logout'") && a.includes("path === '/auth/password'")
+  );
+  check(
+    'app.js: akun perangkat di namespace basarang.local.* (clearAll logout hanya menyentuh bsng.*)',
+    a.includes("localStorage.getItem('basarang.local.' + k)") && a.includes("LS.keys('bsng.')")
+  );
+  check(
+    'app.js: IndexedDB perangkat — store projects/scripts/members',
+    a.includes("indexedDB.open('basarang-local', 1)") && a.includes("createObjectStore('projects'") && a.includes("createObjectStore('scripts'") && a.includes("createObjectStore('members'")
+  );
+  check(
+    'app.js: PBKDF2 lokal 15 rb iterasi — format hash identik server',
+    a.includes("'pbkdf2:15000:'") && a.includes("['deriveBits']")
+  );
+  check(
+    'app.js: topbar mode perangkat — pil "Perangkat" + tombol Sinkron opsional',
+    a.includes('id="btn-sync"') && a.includes('>Perangkat</span>')
+  );
+  check('app.js: login perangkat tanpa internet (hint tak menyesatkan)', a.includes('Mode perangkat — masuk tanpa internet'));
+  check(
+    'app.js: Off.init & flush jaringan hanya dijalankan mode web',
+    a.includes('if (!LOCAL) Off.init();') && a.includes('if (!LOCAL && dirty && savedId)')
+  );
+  check(
+    'app.js: sinkronisasi opsional dua arah + fallback origin lokal utk pengujian',
+    a.includes('Unduh dari Server') && a.includes('Unggah ke Server') && a.includes("if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return location.origin;")
+  );
+  check(
+    'index.html: service worker TIDAK didaftarkan di origin APK (aset sudah lokal)',
+    html.includes("location.hostname !== 'app.basarang.local'")
+  );
+
+  // ---- Perilaku server untuk APK: login lintas origin + Bearer + CORS ----
+  const lg = await req(null, 'POST', '/api/auth/login', {
+    body: { username: 'fajrianor', password: 'rahasia-kuat-2026' },
+    origin: 'https://app.basarang.local',
+  });
+  const token = (lg.data && lg.data.data && lg.data.data.token) || '';
+  check('APK: login lintas origin (Origin APK) diterima — guard CSRF dilewati utk APK', lg.status === 200 && !!(lg.data.data.user));
+  check('APK: respons login menyertakan token sesi (klien non-cookie)', /^[0-9a-f]{64}$/.test(token));
+  check(
+    'APK: respons login ber-header CORS utk origin APK',
+    (lg.res.headers.get('access-control-allow-origin') || '') === 'https://app.basarang.local'
+  );
+
+  const bp = await req(null, 'GET', '/api/projects', { headers: { authorization: 'Bearer ' + token } });
+  check('APK: Bearer token menggantikan cookie (GET /projects 200)', bp.status === 200 && Array.isArray(bp.data.data.projects));
+  const badTok = await req(null, 'GET', '/api/projects', { headers: { authorization: 'Bearer ' + 'f'.repeat(64) } });
+  check('APK: Bearer token palsu ditolak 401', badTok.status === 401, 'status=' + badTok.status);
+  const bs = await req(null, 'POST', '/api/projects', {
+    body: { name: 'Proyek via Bearer' },
+    headers: { authorization: 'Bearer ' + token },
+  });
+  check('APK: tulis via Bearer token berhasil (POST /projects 201)', bs.status === 201 && !!bs.data.data.project, 'status=' + bs.status);
+
+  const pre = await worker.fetch(
+    new Request(ORIGIN + '/api/auth/login', {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'https://app.basarang.local',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type, authorization',
+      },
+    }),
+    env
+  );
+  check(
+    'APK: preflight CORS dijawab (204 + allow-origin + metode)',
+    pre.status === 204 && pre.headers.get('access-control-allow-origin') === 'https://app.basarang.local' && (pre.headers.get('access-control-allow-methods') || '').includes('POST')
+  );
+  const pre2 = await worker.fetch(
+    new Request(ORIGIN + '/api/auth/login', {
+      method: 'OPTIONS',
+      headers: { origin: 'https://jahat.example', 'access-control-request-method': 'POST' },
+    }),
+    env
+  );
+  check('APK: preflight origin asing TIDAK mendapat allow-origin', pre2.status === 204 && !pre2.headers.get('access-control-allow-origin'));
+
+  const lgw = await req('webtoko', 'POST', '/api/auth/login', { body: { username: 'fajrianor', password: 'rahasia-kuat-2026' } });
+  check('web: login biasa tetap menyertakan token (kompatibel; klien cookie mengabaikannya)', lgw.status === 200 && /^[0-9a-f]{64}$/.test(((lgw.data || {}).data || {}).token || ''));
+}
+
 console.log('');
 console.log(`Hasil: ${passed} lulus, ${failed} gagal`);
 rmSync(tmp, { recursive: true, force: true });

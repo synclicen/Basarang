@@ -38,7 +38,13 @@
 <script src="/prompter.js" defer></script>
 <script>
   // Mode luring: daftarkan service worker (app shell di-cache). Https atau localhost.
-  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  // DIKECUALIKAN di origin aplikasi Android (https://app.basarang.local): aset
+  // APK sudah dibundel lokal di dalam paket — service worker tak diperlukan.
+  if (
+    'serviceWorker' in navigator &&
+    location.hostname !== 'app.basarang.local' &&
+    (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('/sw.js').catch(function () { /* luring tak aktif — aplikasi tetap jalan online */ });
     });

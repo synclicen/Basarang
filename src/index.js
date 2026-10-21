@@ -2,11 +2,33 @@
 // Melayani: (1) API JSON di /api/*, (2) aset statis SPA dari assets.gen.js.
 
 import { ensureSchema } from './db.js';
-import { handleApi, HttpError } from './api.js';
+import { handleApi, HttpError, isAppOrigin } from './api.js';
 import { ASSETS } from './assets.gen.js';
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 const IMMUTABLE = { 'cache-control': 'public, max-age=0, must-revalidate', 'x-content-type-options': 'nosniff' };
+
+// ---------- CORS: aplikasi Android (APK) ----------
+// APK menyajikan aset web dari origin lokal https://app.basarang.local dan
+// memanggil API ini lintas origin hanya untuk sinkronisasi opsional. Hanya
+// origin itu yang diizinkan; autentikasi memakai Bearer token (bukan cookie).
+function corsHeaders(request) {
+  if (!isAppOrigin(request)) return null;
+  return {
+    'access-control-allow-origin': 'https://app.basarang.local',
+    'access-control-allow-headers': 'content-type, authorization',
+    'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'access-control-max-age': '86400',
+  };
+}
+
+function withCors(request, res) {
+  const ch = corsHeaders(request);
+  if (!ch) return res;
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(ch)) headers.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
 
 function etagOf(content) {
   // FNV-1a 64-bit ringan (cukup untuk validasi cache 304, bukan keamanan)
@@ -46,7 +68,17 @@ export default {
       const url = new URL(request.url);
 
       if (url.pathname.startsWith('/api/')) {
-        return await handleApi(request, env, url);
+        // Preflight CORS dari APK (fetch JSON + header Authorization lintas origin).
+        if (request.method === 'OPTIONS') {
+          return new Response(null, {
+            status: 204,
+            headers: {
+              allow: 'OPTIONS, GET, HEAD, POST, PUT, PATCH, DELETE',
+              ...corsHeaders(request),
+            },
+          });
+        }
+        return withCors(request, await handleApi(request, env, url));
       }
 
       if (request.method === 'GET' || request.method === 'HEAD') {
