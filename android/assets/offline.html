@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Basarang — Tidak Terhubung</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0c0716; color: #efe9ff;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; padding: 32px; text-align: center;
+  }
+  .logo { width: 84px; height: 84px; border: 3px solid #e8b54d; border-radius: 20px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #2a1b4d, #17102b); }
+  .logo svg { width: 46px; height: 46px; }
+  h1 { font-size: 20px; font-weight: 700; }
+  p { font-size: 14px; line-height: 1.6; color: #b6abd4; max-width: 320px; }
+  button {
+    margin-top: 6px; padding: 12px 30px; border-radius: 999px; border: 0;
+    background: linear-gradient(180deg, #f5d06f, #c9932b); color: #241a05;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  button:active { transform: translateY(1px); }
+  .host { font-size: 12px; color: #7d7399; }
+</style>
+</head>
+<body>
+  <div class="logo">
+    <svg viewBox="0 0 64 64" fill="none" stroke="#e8b54d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="15" y="15" width="34" height="23" rx="5"/>
+      <path d="M23 22.5h14M23 29h8" stroke-width="3.4"/>
+      <path d="M32 38v7M24 45h16" stroke-width="3.4"/>
+    </svg>
+  </div>
+  <h1>Tidak dapat terhubung</h1>
+  <p>Basarang membutuhkan koneksi internet untuk memuat naskah dan akun. Periksa koneksi Anda, lalu coba lagi.</p>
+  <button onclick="retry()">Coba Lagi</button>
+  <p class="host">basarang.synclicen.workers.dev</p>
+<script>
+  function retry() { location.replace('https://basarang.synclicen.workers.dev'); }
+  setTimeout(retry, 15000);
+</script>
+</body>
+</html>

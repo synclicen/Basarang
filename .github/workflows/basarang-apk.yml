@@ -1,0 +1,70 @@
+name: Basarang APK
+
+on:
+  workflow_dispatch:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/basarang-apk.yml'
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v4
+
+      - name: Siapkan Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Pasang komponen Android SDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;35.0.0" > /dev/null
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+
+      - name: Uji kontrak shim SpeechRecognition
+        run: node android/test-shim.mjs
+
+      - name: Siapkan keystore penandatanganan
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_STORE_PASS }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KS_KEYPASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > android/basarang.keystore
+            printf 'STORE_FILE=basarang.keystore\nSTORE_PASS=%s\nKEY_ALIAS=%s\nKEY_PASS=%s\n' \
+              "$KS_PASS" "$KS_ALIAS" "$KS_KEYPASS" > android/keystore.properties
+          else
+            cd android
+            keytool -genkeypair -v -keystore basarang.keystore -storetype PKCS12 \
+              -alias basarang -keyalg RSA -keysize 2048 -validity 9125 \
+              -storepass basarang-ci-dev -keypass basarang-ci-dev \
+              -dname 'CN=Basarang CI Dev, OU=Humas, O=UIN Antasari Banjarmasin, L=Banjarmasin, C=ID' > /dev/null 2>&1
+            printf 'STORE_FILE=basarang.keystore\nSTORE_PASS=basarang-ci-dev\nKEY_ALIAS=basarang\nKEY_PASS=basarang-ci-dev\n' > keystore.properties
+          fi
+
+      - name: Build APK
+        run: bash android/build-apk.sh
+
+      - name: Verifikasi APK
+        run: |
+          BT="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -n1)"
+          APK="$(ls android/out/*.apk)"
+          "$BT/apksigner" verify --print-certs "$APK"
+          "$BT/aapt" dump badging "$APK" | head -6
+
+      - name: Unggah artefak
+        uses: actions/upload-artifact@v4
+        with:
+          name: Basarang-APK
+          path: android/out/*.apk
+          if-no-files-found: error
