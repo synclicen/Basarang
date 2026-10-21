@@ -714,6 +714,78 @@ console.log('— Statistik & bersih-bersih —');
   check('endpoint tak dikenal → 404', notFound.status === 404);
 }
 
+console.log('— Kuota tulis D1 habis (insiden nyata 21 Okt 2026): 503 jelas, baca tetap hidup —');
+{
+  // Aplikasi lain di akun Cloudflare yang sama membakar kuota tulis harian D1
+  // (100 rb baris/hari, level AKUN) → SEMUA tulisan gagal, termasuk pembuatan
+  // sesi login. Basarang harus menjawab 503 db_write_limited dengan pesan pulih
+  // yang jelas (bukan 500 samar) agar klien mengantre & mencoba ulang otomatis.
+  const QUOTA_MSG =
+    "Failed to execute 'run' on 'D1PreparedStatement': Your account has exceeded D1's free tier daily row write limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue.";
+  const quotaStub = {
+    bind() {
+      return this;
+    },
+    async run() {
+      throw new Error(QUOTA_MSG);
+    },
+    async first() {
+      throw new Error(QUOTA_MSG);
+    },
+    async all() {
+      throw new Error(QUOTA_MSG);
+    },
+  };
+  const quotaDb = {
+    prepare(sql) {
+      return /^\s*(select|pragma|explain)\b/i.test(sql) ? db.prepare(sql) : quotaStub;
+    },
+    async batch() {
+      throw new Error(QUOTA_MSG);
+    },
+    async exec(sql) {
+      return db.exec(sql);
+    },
+  };
+  const qEnv = { DB: quotaDb };
+
+  // Login kredensial BENAR saat kuota habis: sesi tak bisa dibuat → 503
+  // (pesan menjelaskan pemulihan, bukan menyalahkan kata sandi pengguna).
+  const r1 = await worker.fetch(
+    new Request(ORIGIN + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'fajrianor', password: 'rahasia-kuat-2026' }),
+    }),
+    qEnv
+  );
+  const d1 = await r1.json();
+  check('kuota habis: login ditolak 503 (bukan 500 samar)', r1.status === 503, 'status=' + r1.status);
+  check(
+    'kuota habis: kode db_write_limited + pesan pulih 07.00 WIB',
+    d1.error === 'db_write_limited' && /07\.00\s*WIB/.test(d1.message || ''),
+    d1.message || ''
+  );
+  check('kuota habis: header Retry-After terpasang', Number(r1.headers.get('retry-after') || 0) >= 60);
+
+  // Endpoint baca tetap hidup — degradasi HANYA pada tulisan.
+  const r2 = await worker.fetch(new Request(ORIGIN + '/api/projects', { headers: { cookie: jarCookies('admin') } }), qEnv);
+  check('kuota habis: endpoint baca tetap 200 (degradasi hanya tulis)', r2.status === 200, 'status=' + r2.status);
+
+  // Klien produksi memperlakukan 503/5xx sebagai gangguan sementara: antrean
+  // sinkron TIDAK dibuang — draf & antrean menunggu server pulih.
+  // (Catatan: helper req tak mengisi .text untuk aset JS — baca res.text() langsung.)
+  const jsQ = await req(null, 'GET', '/app.js');
+  const a = (await jsQ.res.text()) || '';
+  check(
+    'app.js: isTransientErr menganggap 5xx/429/db_write_limited sementara',
+    a.includes('isTransientErr') &&
+      a.includes("e.status === 429 || e.status >= 500 || e.code === 'db_write_limited' || e.code === 'rate_limited'") &&
+      a.includes('if (this.isTransientErr(err)) break;')
+  );
+  check('app.js: doSave mengantre saat server sibuk (hint "server pulih")', a.includes('terkirim otomatis saat server pulih'));
+}
+
 console.log('');
 console.log(`Hasil: ${passed} lulus, ${failed} gagal`);
 rmSync(tmp, { recursive: true, force: true });

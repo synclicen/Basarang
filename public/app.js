@@ -141,6 +141,14 @@
     isNetErr(e) {
       return !!e && (e.status === 0 || e.code === 'offline');
     },
+    // Gangguan SEMENTARA: jaringan putus ATAU server sedang tidak sanggup menulis
+    // (5xx, 429, kuota D1 harian habis). Aman untuk dicoba ulang nanti — jangan
+    // pernah buang antrean/draf karena ini.
+    isTransientErr(e) {
+      if (this.isNetErr(e)) return true;
+      if (!e) return false;
+      return e.status === 429 || e.status >= 500 || e.code === 'db_write_limited' || e.code === 'rate_limited';
+    },
     init() {
       this.queue = LS.get('bsng.queue', []) || [];
       window.addEventListener('online', () => {
@@ -183,8 +191,8 @@
             if (data && data.script) this.cacheScript(data.script);
             toast('"' + (data && data.script ? data.script.title : item.body.title) + '" terkirim ke server ✓', 'ok', 3200);
           } catch (err) {
-            if (this.isNetErr(err)) break; // masih offline — coba lagi nanti
-            // Ditolak server (bukan soal jaringan): tidak akan pernah lolos — buang.
+            if (this.isTransientErr(err)) break; // gangguan sementara (luring/server sibuk) — coba lagi nanti
+            // Ditolak server secara permanen (4xx): tidak akan pernah lolos — buang.
             this.queue.shift();
             this.persistQueue();
             toast('Perubahan "' + item.body.title + '" ditolak server: ' + err.message, 'err', 5200);
@@ -724,7 +732,7 @@
       Off.cacheProjects(d.projects || []);
       state.luring = false;
     } catch (err) {
-      const c = Off.isNetErr(err) ? Off.cachedProjects() : null;
+      const c = Off.isTransientErr(err) ? Off.cachedProjects() : null;
       if (c) {
         d = { projects: c.projects };
         luring = true;
@@ -873,7 +881,7 @@
       Off.cacheProject(d);
       state.luring = false;
     } catch (err) {
-      const c = Off.isNetErr(err) ? Off.cachedProject(projectId) : null;
+      const c = Off.isTransientErr(err) ? Off.cachedProject(projectId) : null;
       if (c) {
         d = c;
         luring = true;
@@ -881,7 +889,7 @@
         $app.innerHTML = `${topbarHtml()}
       <main class="page container">
         <div class="empty-state"><h3>Tidak dapat membuka proyek</h3><p>${esc(err.message)}</p>
-        <p class="hint">${Off.isNetErr(err) ? 'Buka proyek ini sekali saat online agar tersimpan untuk mode luring.' : ''}</p>
+        <p class="hint">${Off.isTransientErr(err) ? 'Buka proyek ini sekali saat normal agar tersimpan untuk mode luring.' : ''}</p>
         <a class="btn btn-ghost mt-3" href="#/dashboard">${I.back} Kembali</a></div>
       </main>`;
         bindLogout();
@@ -987,11 +995,11 @@
             full = d.script;
             Off.cacheScript(d.script);
           } catch (err) {
-            // Luring: pakai isi terakhir yang tersimpan di perangkat.
-            if (Off.isNetErr(err)) full = Off.cachedScript(s.id);
+            // Luring / server bermasalah: pakai isi terakhir yang tersimpan di perangkat.
+            if (Off.isTransientErr(err)) full = Off.cachedScript(s.id);
             if (!full) {
               toast(
-                'Tidak dapat membuka naskah: ' + err.message + (Off.isNetErr(err) ? ' (naskah ini belum pernah dibuka saat online)' : ''),
+                'Tidak dapat membuka naskah: ' + err.message + (Off.isTransientErr(err) ? ' (naskah ini belum pernah dibuka saat normal)' : ''),
                 'err',
                 4200
               );
@@ -1247,22 +1255,26 @@
               saveHint.style.color = 'var(--ok)';
               return data.script;
             } catch (err) {
-              if (Off.isNetErr(err)) {
-                // LURING: simpan di perangkat + antre; terkirim otomatis saat online.
+              if (Off.isTransientErr(err)) {
+                // LURING / SERVER SIBUK (5xx, kuota D1 harian habis): simpan di
+                // perangkat + antre; terkirim otomatis saat koneksi/server pulih.
                 lastSaved = { title: body.title, content: body.content, wpm: body.words_per_minute };
                 dirty = false;
                 Off.clearDraft(draftKey);
                 if (draftEl) draftEl.textContent = '';
+                const hintTunggu = Off.isNetErr(err)
+                  ? 'Tersimpan di perangkat ✓ — terkirim otomatis saat online'
+                  : 'Tersimpan di perangkat ✓ — terkirim otomatis saat server pulih';
                 if (savedId) {
                   Off.enqueue({ key: 'edit:' + savedId, method: 'PUT', path: '/scripts/' + savedId, body, ts: Date.now() });
                   Off.cacheScript({ id: savedId, project_id: project.id, ...body });
-                  saveHint.textContent = 'Tersimpan di perangkat ✓ — terkirim otomatis saat online';
+                  saveHint.textContent = hintTunggu;
                   saveHint.style.color = 'var(--ok)';
-                  return { id: savedId, project_id: project.id, queued: true, ...body };
+                  return { id: savedId, project_id: project.id, queued: true, srvBusy: !Off.isNetErr(err), ...body };
                 }
                 // Naskah BARU saat luring: menunggu POST saat online (belum ada id server).
                 Off.enqueue({ key: 'new:' + project.id, method: 'POST', path: '/projects/' + project.id + '/scripts', body, ts: Date.now() });
-                saveHint.textContent = 'Tersimpan di perangkat ✓ — naskah baru muncul di daftar setelah online';
+                saveHint.textContent = hintTunggu + ' — naskah baru muncul di daftar setelah tersinkron';
                 saveHint.style.color = 'var(--ok)';
                 return null;
               }
@@ -1285,7 +1297,14 @@
           btn.disabled = false;
           if (s) {
             close();
-            toast(s.queued ? 'Tersimpan di perangkat — akan dikirim otomatis saat online.' : 'Naskah tersimpan.', s.queued ? 'info' : 'ok');
+            toast(
+              s.queued
+                ? s.srvBusy
+                  ? 'Tersimpan di perangkat — akan dikirim otomatis saat server pulih.'
+                  : 'Tersimpan di perangkat — akan dikirim otomatis saat online.'
+                : 'Naskah tersimpan.',
+              s.queued ? 'info' : 'ok'
+            );
             render();
           }
         });
@@ -1511,8 +1530,8 @@
         },
       });
     } catch (err) {
-      // Luring: buka versi terakhir yang tersimpan di perangkat (mode Timer penuh).
-      if (Off.isNetErr(err) && window.Prompter) {
+      // Luring / server bermasalah: buka versi terakhir yang tersimpan di perangkat (mode Timer penuh).
+      if (Off.isTransientErr(err) && window.Prompter) {
         const c = Off.cachedScript(scriptId);
         if (c) {
           const pc = Off.cachedProject(c.project_id);
@@ -1547,9 +1566,9 @@
     } catch (e) {
       state.user = null;
       state.needsSetup = false;
-      // Luring: sesi terakhir yang tersimpan di perangkat tetap bisa dipakai
-      // (data baca dari cache; tulisan masuk antrean sinkron).
-      if (Off.isNetErr(e)) {
+      // Luring / server bermasalah: sesi terakhir yang tersimpan di perangkat tetap
+      // bisa dipakai (data baca dari cache; tulisan masuk antrean sinkron).
+      if (Off.isTransientErr(e)) {
         const cu = Off.cachedUser();
         if (cu) {
           state.user = cu;

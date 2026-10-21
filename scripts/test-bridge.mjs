@@ -340,6 +340,90 @@ console.log('— Mode luring: offline penuh di Chromium —');
   check('server menerima hasil edit offline (isi cocok)', d.data?.data?.script?.content === ISI_OFFLINE);
 }
 
+console.log('— Server "sakit" (kuota tulis D1 habis): antrean tak dibuang —');
+{
+  // Insiden nyata 21 Okt 2026: kuota tulis D1 (level akun, 100 rb baris/hari)
+  // terbakar aplikasi lain → semua PUT gagal 503 db_write_limited. Perilaku lama:
+  // error non-jaringan = antrean DIBUANG (naskah hilang!). Perilaku baru: 503 =
+  // gangguan sementara → antrean menunggu, terkirim otomatis saat pulih.
+  const realDb = env.DB;
+  const QUOTA_MSG =
+    "Failed to execute 'run' on 'D1PreparedStatement': Your account has exceeded D1's free tier daily row write limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue.";
+  const quotaStub = {
+    bind() {
+      return this;
+    },
+    async run() {
+      throw new Error(QUOTA_MSG);
+    },
+    async first() {
+      throw new Error(QUOTA_MSG);
+    },
+    async all() {
+      throw new Error(QUOTA_MSG);
+    },
+  };
+  env.DB = {
+    prepare(sql) {
+      return /^\s*(select|pragma|explain)\b/i.test(sql) ? realDb.prepare(sql) : quotaStub;
+    },
+    async batch() {
+      throw new Error(QUOTA_MSG);
+    },
+    async exec(sql) {
+      return realDb.exec(sql);
+    },
+  };
+
+  // Buka editor naskah — endpoint baca tetap hidup saat kuota tulis habis.
+  await page.evaluate(() => {
+    location.hash = '#/dashboard';
+  });
+  await page.waitForSelector('#dash-projects .proj-card', { timeout: 15000 });
+  await page.click('#dash-projects .proj-card');
+  await page.waitForSelector('[data-edit]', { timeout: 15000 });
+  await page.click('[data-edit]');
+  await page.waitForSelector('#content-ta', { timeout: 15000 });
+  const taOpen = await page.inputValue('#content-ta');
+  check('server sakit: editor tetap bisa membuka naskah (baca hidup)', taOpen.length > 0, taOpen.slice(0, 40));
+
+  // Edit + simpan saat server sakit → harus masuk antrean perangkat (503 sementara).
+  const ISI_SAKIT =
+    'Naskah ini disimpan saat server mencapai batas kuota basis data harian — harus tetap aman di perangkat dan terkirim otomatis saat pulih.';
+  await page.fill('#content-ta', ISI_SAKIT);
+  await page.click('#script-form button[type=submit]');
+  await sleep(1200);
+
+  const q1 = await page.evaluate(() => JSON.parse(localStorage.getItem('bsng.queue') || '[]'));
+  check(
+    'server sakit: simpan masuk antrean perangkat (PUT tertunda)',
+    q1.length === 1 && q1[0].method === 'PUT' && q1[0].body && q1[0].body.content === ISI_SAKIT,
+    JSON.stringify(q1.map((x) => x.key))
+  );
+  // Modal editor tertutup setelah simpan (termasuk via antrean) → pesan lewat toast.
+  const toastTxt = await page.textContent('#toast-root').catch(() => '');
+  check(
+    'server sakit: toast "dikirim otomatis saat server pulih" (bukan menyesatkan "saat online")',
+    toastTxt.includes('server pulih') && !toastTxt.includes('saat online'),
+    toastTxt.slice(0, 90)
+  );
+
+  // Coba kirim ulang (event online) saat server MASIH sakit → antrean HARUS utuh.
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await sleep(1500);
+  const q2 = await page.evaluate(() => JSON.parse(localStorage.getItem('bsng.queue') || '[]'));
+  check('server masih sakit: antrean TIDAK dibuang (menunggu pulih)', q2.length === 1, JSON.stringify(q2));
+
+  // Server pulih → antrean terkirim otomatis.
+  env.DB = realDb;
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await sleep(1800);
+  const q3 = await page.evaluate(() => JSON.parse(localStorage.getItem('bsng.queue') || '[]'));
+  check('server pulih: antrean terkirim otomatis (kosong)', q3.length === 0, JSON.stringify(q3));
+  const d2 = await api('GET', '/api/scripts/' + globalThis.__SID, null, globalThis.__COOKIE);
+  check('server pulih: isi hasil edit saat server sakit diterima (cocok)', d2.data?.data?.script?.content === ISI_SAKIT);
+}
+
 // ---------- Rapikan ----------
 
 await browser.close();

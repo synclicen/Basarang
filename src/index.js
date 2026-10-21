@@ -70,6 +70,25 @@ export default {
           headers: JSON_HEADERS,
         });
       }
+      // Batas kuota tulis harian D1 (paket gratis, level AKUN) tercapai — gangguan
+      // SEMENTARA yang pulih otomatis tiap midnight UTC (07.00 WIB). Dipetakan ke
+      // 503 + kode db_write_limited agar klien menyimpan perubahan di perangkat
+      // dan mencoba ulang otomatis, bukan membuangnya.
+      const emsg = String((e && e.message) || '');
+      if (/exceeded D1/i.test(emsg) || /daily row write limit/i.test(emsg)) {
+        const now = new Date();
+        const reset = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+        const retrySec = Math.max(60, Math.ceil((reset - now.getTime()) / 1000));
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'db_write_limited',
+            message:
+              'Kuota tulis basis data harian habis (batas paket gratis Cloudflare). Pulih otomatis pukul 07.00 WIB — silakan coba lagi nanti.',
+          }),
+          { status: 503, headers: { ...JSON_HEADERS, 'retry-after': String(retrySec) } }
+        );
+      }
       console.error('Unhandled error:', e && e.stack ? e.stack : String(e));
       return new Response(
         JSON.stringify({ ok: false, error: 'server_error', message: 'Terjadi kesalahan server. Coba lagi.' }),
