@@ -131,6 +131,7 @@
       lastTick: 0,
       wakeLock: null,
       recorder: { stream: null, mediaRecorder: null, chunks: [], url: null },
+      camErr: null, // pesan kegagalan kamera terakhir (null = tak ada / sudah beres)
       videoMode: 'live', // 'live' (kamera langsung) | 'replay' (putar hasil rekaman)
       hudTimer: null,
     };
@@ -653,8 +654,58 @@
 
     function attachCamera(stream) {
       S.recorder.stream = stream;
+      clearCamError();
       elVideoBox.classList.remove('hidden');
       setVideoMode('live');
+    }
+
+    // ---------- Umpan balik kegagalan kamera ----------
+    // Saat getUserMedia gagal, pratinjau kanan-atas TIDAK muncul — pengguna
+    // hanya dulu melihat banner 5 detik yang mudah terlewat sehingga terkesan
+    // "tombol kamera tidak melakukan apa-apa". Kini penyebabnya ditulis jelas
+    // (izin ditolak / kamera dipakai aplikasi lain / tidak ada kamera) + cara
+    // mengatasinya, dan tombol kamera menyala merah persisten sampai berhasil.
+    function clearCamError() {
+      S.camErr = null;
+      const btn = $('p-rec');
+      btn.classList.remove('err');
+      btn.title = 'Rekam video (kamera)';
+    }
+
+    function setCamError(msg) {
+      S.camErr = msg;
+      const btn = $('p-rec');
+      btn.classList.add('err');
+      btn.title = 'Kamera tidak aktif — ' + msg;
+    }
+
+    function cameraErrMsg(err) {
+      const n = (err && err.name) || '';
+      if (n === 'NotAllowedError' || n === 'PermissionDeniedError')
+        return 'izin kamera ditolak — klik ikon kamera / gembok di bilah alamat peramban, pilih Izinkan, lalu klik tombol kamera ini lagi';
+      if (n === 'NotFoundError' || n === 'DevicesNotFoundError' || n === 'OverconstrainedError')
+        return 'kamera tidak ditemukan di perangkat ini';
+      if (n === 'NotReadableError' || n === 'TrackStartError')
+        return 'kamera sedang dipakai aplikasi lain (mis. Zoom / OBS / Teams) — tutup aplikasi itu lalu coba lagi';
+      return 'kamera tidak dapat diakses' + (err && err.message ? ': ' + err.message : '');
+    }
+
+    // Kamera + mikrofon diminta sekaligus; jika mikrofon bermasalah (tidak ada /
+    // diblokir) kamera jangan ikut gagal — ulangi dengan video-saja agar pratinjau
+    // tetap tampil (rekaman hanya menjadi tanpa suara).
+    async function getCameraStream() {
+      const video = { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' };
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video, audio: true });
+      } catch (errAudio) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+          banner('Mikrofon tidak tersedia — merekam tanpa suara.', 5000);
+          return stream;
+        } catch (errVideo) {
+          throw errVideo; // kamera sendiri yang gagal
+        }
+      }
     }
 
     function stopCamera() {
@@ -672,6 +723,7 @@
       elVideoDot.classList.add('hidden');
       elVideoPlay.classList.add('hidden');
       $('p-rec').classList.remove('on');
+      clearCamError(); // tombol kembali normal — kegagalan lama tidak menghantui
       setStatus(S.playing && S.mode === 'voice' ? 'Mendengarkan…' : 'Siap', S.playing && S.mode === 'voice' ? 'listening' : '');
       hudWake();
     }
@@ -729,10 +781,7 @@
         return;
       }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-          audio: true,
-        });
+        const stream = await getCameraStream();
         attachCamera(stream);
         // Kamera dicabut sistem (mis. perangkat lepas) → matikan pratinjau dengan rapi
         stream.getTracks().forEach((t) => t.addEventListener('ended', () => {
@@ -740,7 +789,11 @@
         }));
         startRecording(stream);
       } catch (err) {
-        banner('Tidak dapat mengakses kamera/mikrofon: ' + (err && err.name === 'NotAllowedError' ? 'izin ditolak' : 'perangkat tidak tersedia'), 5000);
+        // Pratinjau tidak muncul → pastikan pengguna TAHU kenapa & bagaimana
+        // memperbaikinya: banner 8 detik + tombol kamera menyala merah persisten.
+        const msg = cameraErrMsg(err);
+        setCamError(msg);
+        banner('Pratinjau kamera tidak tampil: ' + msg + '.', 8000);
       }
     }
 

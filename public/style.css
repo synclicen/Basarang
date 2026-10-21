@@ -577,6 +577,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .p-ctrl:hover { border-color: var(--gold-2); background: rgba(42, 27, 77, 0.9); }
 .p-ctrl:active { transform: scale(0.94); }
 .p-ctrl.on { border-color: var(--gold-2); color: var(--gold-1); box-shadow: inset 0 0 12px rgba(232,181,77,.12); }
+/* Kamera gagal (izin ditolak / dipakai aplikasi lain): tombol kamera menyala
+   merah persisten sampai berhasil — pratinjau kanan-atas memang tidak muncul,
+   pengguna perlu tanda di tombolnya + pesan penyebab di banner/tooltip. */
+.p-ctrl.err { border-color: rgba(255, 122, 138, 0.8); color: #FF9AA6; background: rgba(64, 18, 30, 0.55); }
+.p-ctrl.err:hover { border-color: var(--err); color: #FFD9DE; }
 .p-ctrl .icon { width: 10px; height: 10px; }
 .p-play {
   min-width: 24px; height: 24px; border-radius: 50%;

@@ -734,8 +734,10 @@
           ${can_manage ? `<button class="btn btn-danger" id="btn-del-proj-2">${I.trash} Hapus Proyek Ini</button>` : ''}
         </div>
       </div>`;
-      const b2 = document.getElementById('btn-new-script-2');
-      if (b2) b2.addEventListener('click', () => scriptEditor(project, null));
+      // CATATAN: tombol "Tulis Naskah Pertama" (btn-new-script-2) TIDAK diikat di
+      // sini — sudah diikat sekali lewat newBtns di bawah. Pernah diikat dua kali
+      // (dua listener → scriptEditor terpanggil 2x → DUA modal bertumpuk; setelah
+      // menyimpan, modal kembar kosong masih tersisa & terkesan "tidak tertutup").
     } else {
       grid.innerHTML = scripts
         .map((s) => {

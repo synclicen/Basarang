@@ -212,6 +212,14 @@ console.log('— Aset statis & kesehatan —');
       'kolom isian bebas suggestion text (placeholder dihapus)',
       !a.includes('placeholder=') && !(css.text || '').includes('::placeholder')
     );
+    // Regresi modal dobel: btn-new-script-2 pernah diikat DUA kali (empty-state
+    // + newBtns) → klik "Tulis Naskah Pertama" membuka 2 modal bertumpuk; setelah
+    // disimpan, modal kembar kosong tersisa & terkesan "tidak mau tertutup".
+    check(
+      'proyek kosong: Tulis Naskah Pertama hanya diikat sekali (newBtns)',
+      a.includes("const newBtns = [document.getElementById('btn-new-script'), document.getElementById('btn-new-script-2')];") &&
+        !a.includes("b2.addEventListener('click', () => scriptEditor(project, null))")
+    );
   }
   const al = await req(null, 'GET', '/align.js');
   check('align.js tersaji', al.status === 200);
@@ -271,6 +279,22 @@ console.log('— Aset statis & kesehatan —');
     check(
       'CSS footage di atas semua lapisan (z-index 21)',
       (css.text || '').includes('.p-video-box') && (css.text || '').includes('z-index: 21') && (css.text || '').includes('.p-video-dot') && (css.text || '').includes('.p-video-off')
+    );
+    // Regresi pratinjau kamera "tidak terlihat": getUserMedia gagal (izin ditolak /
+    // kamera dipakai aplikasi lain / tanpa mikrofon) dulu hanya banner 5 detik
+    // yang mudah terlewat — kini: fallback video-saja, pesan penyebab + solusi,
+    // dan tombol kamera menyala merah persisten (clearCamError saat beres).
+    check(
+      'kamera: fallback video-saja saat mikrofon gagal',
+      t.includes('async function getCameraStream') && t.includes('audio: false') && t.includes('Mikrofon tidak tersedia')
+    );
+    check(
+      'kamera: pesan kegagalan menjelaskan penyebab + solusi',
+      t.includes('function cameraErrMsg') && t.includes('bilah alamat') && t.includes('kamera sedang dipakai aplikasi lain') && t.includes('kamera tidak ditemukan')
+    );
+    check(
+      'kamera: status error persisten di tombol (merah) + banner 8 dtk',
+      t.includes('function setCamError') && t.includes('function clearCamError') && t.includes("classList.add('err')") && t.includes(', 8000)') && (css.text || '').includes('.p-ctrl.err')
     );
     check(
       'HUD ultra-kompak (50%): tombol 24px, play 24px, padding 2px',
