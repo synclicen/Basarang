@@ -530,7 +530,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .p-guide .tri-r { right: clamp(10px, 6vw, 70px); border-right: 9px solid var(--gold-2); }
 
 /* Fade tepi atas/bawah */
-.p-fade { position: absolute; left: 0; right: 0; height: 16dvh; z-index: 1; pointer-events: none; }
+.p-fade { position: absolute; left: 0; right: 0; height: 16dvh; z-index: 1; pointer-events: none; opacity: var(--fade-op, 0.95); }
 .p-fade.top { top: 0; background: linear-gradient(#07040Fee, transparent); }
 .p-fade.bot { bottom: 0; background: linear-gradient(transparent, #07040Fee); }
 .prompter.theme-contrast .p-fade.top { background: linear-gradient(#000e, transparent); }

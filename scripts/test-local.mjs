@@ -243,6 +243,12 @@ console.log('— Aset statis & kesehatan —');
       'pengaturan blok kata emas',
       t.includes('ps-wordblock') && t.includes('wordBlock') && (css.text || '').includes('.prompter.no-wordblock .p-word.cur')
     );
+    // Regresi fade tepi: dulu hardcoded (tak bisa diubah user) — kini slider
+    // "Memudar tepi" 0-100% via var --fade-op di .p-fade.
+    check(
+      'pengaturan memudar tepi (fade atas/bawah)',
+      t.includes('ps-fade') && t.includes('edgeFade') && t.includes('--fade-op') && (css.text || '').includes('opacity: var(--fade-op')
+    );
     check(
       'tombol HUD bawah: blok emas + ulang dari awal',
       t.includes('id="p-wordblock"') && t.includes('id="p-restart"') && t.includes('function restartFromTop') && t.includes('function toggleWordBlock') && t.includes('function syncWordBlockButtons')

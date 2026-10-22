@@ -20,6 +20,7 @@
     mirrorY: false,
     guide: true,
     wordBlock: true, // blok kata emas pada kata aktif — bisa disembunyikan bila mengganggu pembacaan
+    edgeFade: 0.95, // opasitas efek memudar di tepi atas/bawah (0 = mati, 1 = pekat) — harus kelipatan 0.05 (step slider)
     align: 'left', // rata teks naskah: 'left' | 'center' | 'right' | 'justify'
   };
   const LANGS = [
@@ -258,6 +259,7 @@
       elContent.classList.toggle('mirror-x', settings.mirrorX);
       elContent.classList.toggle('mirror-y', settings.mirrorY);
       root.className = 'prompter theme-' + settings.theme + (S.hudHidden ? ' p-hud-hidden' : '') + (settings.wordBlock === false ? ' no-wordblock' : '');
+      root.style.setProperty('--fade-op', String(settings.edgeFade == null ? 0.95 : settings.edgeFade));
       elGuide.classList.toggle('hidden', !settings.guide);
       invalidateMetrics();
     }
@@ -858,6 +860,10 @@
             <option value="silver" ${settings.theme === 'silver' ? 'selected' : ''}>Perak Berpendar</option>
           </select>
         </div>
+        <div class="p-set-row"><span class="lbl">Memudar tepi</span>
+          <span class="row" style="gap:8px"><input type="range" id="ps-fade" min="0" max="1" step="0.05" value="${settings.edgeFade}" title="${Math.round(settings.edgeFade * 100)}%">
+          <b id="ps-fade-v" style="min-width:52px;font-size:var(--fs-xs)">${Math.round(settings.edgeFade * 100)}%</b></span>
+        </div>
         <div class="p-set-row"><span class="lbl">Panduan baris</span>
           <button class="p-ctrl ${settings.guide ? 'on' : ''}" id="ps-guide" style="min-width:60px;height:34px">${settings.guide ? 'Aktif' : 'Mati'}</button>
         </div>
@@ -915,6 +921,7 @@
       });
       bindRange('ps-font', 'ps-font-v', 'fontSize', (x) => '×' + x.toFixed(2), applyTypography);
       bindRange('ps-lh', 'ps-lh-v', 'lineHeight', (x) => x.toFixed(2), applyTypography);
+      bindRange('ps-fade', 'ps-fade-v', 'edgeFade', (x) => Math.round(x * 100) + '%', applyTypography);
       elSettings.querySelector('#ps-theme').addEventListener('change', (e) => {
         settings.theme = e.target.value;
         saveSettings(settings);
