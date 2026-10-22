@@ -63,7 +63,10 @@ cp ../public/* "$OUT/stage/assets/www/"
 cp assets/* "$OUT/stage/assets/"
 (
   cd "$OUT/stage"
-  find assets -type f | LC_ALL=C sort > ../files.txt
+  # classes.dex WAJIB ikut ditambahkan — bug riil: dex sempat hanya disalin ke
+  # stage/ tanpa masuk files.txt → APK terbit TANPA kode → ditolak Android
+  # saat dipasang (INSTALL_PARSE_FAILED / "paket invalid").
+  { find assets -type f | LC_ALL=C sort; echo classes.dex; } > ../files.txt
   xargs "$BT/aapt" add ../unsigned.apk < ../files.txt > /dev/null
 )
 
@@ -80,6 +83,16 @@ echo "== 6/7 apksigner =="
   --key-pass "pass:$KEY_PASS" \
   --out "$APK_OUT" "$OUT/aligned.apk"
 "$BT/apksigner" verify "$APK_OUT"
+
+echo "== 7/7 sanity: APK wajib bisa dipasang =="
+# (1) classes.dex harus ada — tanpa dex Android menolak install.
+unzip -l "$APK_OUT" | grep -q " classes.dex" \
+  || { echo "ERROR: classes.dex tidak ada di APK — build gagal." >&2; exit 1; }
+# (2) resources.arsc wajib Stored (targetSdk 30+; Android 11+ menolak bila terkompresi).
+ARSC_METODE="$(unzip -v "$APK_OUT" resources.arsc | awk '/resources.arsc/ {print $2}')"
+[ "$ARSC_METODE" = "Stored" ] \
+  || { echo "ERROR: resources.arsc terkompresi ($ARSC_METODE) — wajib Stored untuk targetSdk 30+." >&2; exit 1; }
+echo "  ✓ classes.dex ada; resources.arsc Stored"
 
 echo ""
 echo "== SELESAI: $APK_OUT (full offline) =="

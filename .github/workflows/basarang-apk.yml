@@ -83,6 +83,10 @@ jobs:
         run: |
           BT="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -n1)"
           APK="$(ls android/out/*.apk)"
+          # Gerbang mutlak: APK tanpa classes.dex ditolak Android saat dipasang
+          # (bug riil: rilis v1.0.0–v1.2.0 sempat terbit tanpa dex).
+          unzip -l "$APK" | grep -q " classes.dex" || { echo "ERROR: classes.dex tidak ada di APK"; exit 1; }
+          echo "✓ classes.dex ada"
           "$BT/apksigner" verify --print-certs "$APK"
           "$BT/aapt" dump badging "$APK" | head -6
 
