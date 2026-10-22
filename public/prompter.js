@@ -95,12 +95,19 @@
   window.Prompter = {
     isActive: () => !!active,
     open(opts) {
-      if (active) active.exit();
+      // Dijaga try/catch: kegagalan membersihkan sesi lama tidak boleh
+      // menggagalkan pembukaan sesi baru.
+      if (active) {
+        try { active.exit(); } catch { /* abaikan */ }
+      }
       active = createSession(opts);
       return active;
     },
     exit() {
-      if (active) active.exit();
+      if (active) {
+        try { active.exit(); } catch { /* abaikan */ }
+        active = null;
+      }
     },
   };
 
@@ -1267,6 +1274,12 @@
     S._clock = setInterval(updateTime, 1000);
     hudWake();
     scrollToWord(1, false);
+
+    // Antarmuka publik sesi: tanpa ini, window.Prompter.exit() melempar
+    // TypeError (active.exit is not a function) dan navigasi hashchange
+    // apa pun (tombol back, Keluar, tautan) MEMBEKUKAN aplikasi selamanya
+    // karena render() tidak pernah terpanggil.
+    S.exit = exit;
 
     return S;
   }

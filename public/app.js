@@ -1231,6 +1231,9 @@
           navigate('#/project/' + d.script.project_id);
         },
       });
+      // Topbar tetap tampil di halaman prompter — tombolnya (Keluar, ganti
+      // sandi) wajib diikat juga, tanpa ini tombol tersebut mati.
+      bindLogout();
     } catch (err) {
       $app.innerHTML = `${topbarHtml()}
       <main class="page container">
@@ -1259,7 +1262,13 @@
 
   window.addEventListener('hashchange', () => {
     if (window.Prompter && window.Prompter.isActive()) {
-      window.Prompter.exit();
+      // Dijaga try/catch: kegagalan pembersihan teleprompter tidak boleh
+      // membatalkan render() — jika tidak, seluruh aplikasi membeku.
+      try {
+        window.Prompter.exit();
+      } catch {
+        /* abaikan */
+      }
     }
     render();
   });
