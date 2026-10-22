@@ -7,6 +7,9 @@ on:
     branches: [main]
     paths:
       - 'android/**'
+      # APK membundel seluruh public/ sebagai assets/www (build-apk.sh) —
+      # perubahan web WAJIB memicu rebuild APK, jika tidak bug tetap hidup di APK.
+      - 'public/**'
       - '.github/workflows/basarang-apk.yml'
 
 # contents:write agar bisa menerbitkan Release (unduhan langsung APK dari HP).

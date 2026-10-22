@@ -266,6 +266,41 @@ console.log('— Regresi: mode Timer tanpa suara —');
   await sleep(4600); // hitung mundur 3-2-1-Mulai + gulir
   const s1 = await $eval(() => document.getElementById('p-scroll').scrollTop);
   check('mode Timer menggulir sendiri', s1 > s0, `${s0} → ${s1}`);
+  // Regresi 22 Okt 2026: mode gulir dulu meredupkan kata terlewati (kelas done,
+  // abu 42% → "menghitam") + blok emas mengikuti posisi proporsional — efek
+  // karaoke mengganggu pembacaan; kini teks mode Timer seragam.
+  const marks = await $eval(() => ({
+    done: document.querySelectorAll('.p-word.done').length,
+    cur: document.querySelectorAll('.p-word.cur').length,
+  }));
+  check('mode Timer: kata terlewati TIDAK memudar (teks seragam)', marks.done === 0, JSON.stringify(marks));
+  check('mode Timer: tanpa blok emas', marks.cur === 0, JSON.stringify(marks));
+  // Klik kata di mode Timer: lompat tanpa menandai kata apa pun.
+  await page.evaluate(() => {
+    const ws = document.querySelectorAll('.p-word');
+    ws[Math.min(10, ws.length - 1)].click();
+  });
+  const marksClick = await $eval(() => ({
+    done: document.querySelectorAll('.p-word.done').length,
+    cur: document.querySelectorAll('.p-word.cur').length,
+  }));
+  check('mode Timer: klik kata melompat tanpa penanda', marksClick.done === 0 && marksClick.cur === 0, JSON.stringify(marksClick));
+  // Ganti ke mode Suara: blok emas muncul di posisi terlihat (garis panduan).
+  await page.evaluate(() => document.querySelector('#p-mode [data-mode="voice"]').click());
+  await sleep(200);
+  const vm = await $eval(() => ({
+    done: document.querySelectorAll('.p-word.done').length,
+    cur: document.querySelectorAll('.p-word.cur').length,
+  }));
+  check('ganti ke Suara: blok emas muncul di posisi terlihat', vm.cur === 1, JSON.stringify(vm));
+  // Kembali ke mode Timer: seluruh penanda dibersihkan — teks kembali seragam.
+  await page.evaluate(() => document.querySelector('#p-mode [data-mode="timer"]').click());
+  await sleep(200);
+  const tm = await $eval(() => ({
+    done: document.querySelectorAll('.p-word.done').length,
+    cur: document.querySelectorAll('.p-word.cur').length,
+  }));
+  check('kembali ke Timer: penanda kata bersih (teks seragam)', tm.done === 0 && tm.cur === 0, JSON.stringify(tm));
   await page.evaluate(() => document.getElementById('p-exit').click());
   await sleep(300);
 }

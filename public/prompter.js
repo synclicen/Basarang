@@ -19,7 +19,7 @@
     mirrorX: false,
     mirrorY: false,
     guide: true,
-    wordBlock: true, // blok kata emas pada kata aktif — bisa disembunyikan bila mengganggu pembacaan
+    wordBlock: true, // blok kata emas pada kata aktif (mode suara) — bisa disembunyikan bila mengganggu pembacaan
     edgeFade: 0.95, // opasitas efek memudar di tepi atas/bawah (0 = mati, 1 = pekat) — harus kelipatan 0.05 (step slider)
     align: 'left', // rata teks naskah: 'left' | 'center' | 'right' | 'justify'
   };
@@ -172,11 +172,11 @@
         <button class="p-play" id="p-play" title="Mulai / jeda (Spasi)">${ICON.play}</button>
         <button class="p-ctrl" id="p-font-up" title="Perbesar teks (+)">${ICON.fontUp}</button>
         <button class="p-ctrl" id="p-mirror" title="Cermin (M)">${ICON.mirror}</button>
-        <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="p-wordblock" title="Blok kata emas — tampil/sembunyi (B)">${ICON.block}</button>
+        <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="p-wordblock" title="Blok kata emas mode suara — tampil/sembunyi (B)">${ICON.block}</button>
         <button class="p-ctrl" id="p-align" title="${ALIGN_LABELS[settings.align] || ALIGN_LABELS.left} — klik untuk ganti rata teks (A)">${ALIGN_ICONS[settings.align] || ALIGN_ICONS.left}</button>
         <div class="seg p-mode" id="p-mode" role="group" aria-label="Mode gulir">
-          <button type="button" data-mode="voice" class="${S.mode === 'voice' ? 'on' : ''}" title="Ikut Suara — naskah mengikuti ucapan (T)">${ICON.mic}<span class="txt">Suara</span></button>
-          <button type="button" data-mode="timer" class="${S.mode === 'timer' ? 'on' : ''}" title="Timer — gulir otomatis sesuai kecepatan baca (T)">${ICON.auto}<span class="txt">Timer</span></button>
+          <button type="button" data-mode="voice" class="${S.mode === 'voice' ? 'on' : ''}" title="Ikut Suara — naskah mengikuti ucapan; kata terlewati diredupkan (T)">${ICON.mic}<span class="txt">Suara</span></button>
+          <button type="button" data-mode="timer" class="${S.mode === 'timer' ? 'on' : ''}" title="Timer — gulir otomatis sesuai kecepatan baca; teks seragam tanpa redup (T)">${ICON.auto}<span class="txt">Timer</span></button>
         </div>
         <div class="p-speed" id="p-speed-box">
           ${ICON.gauge}<input type="range" id="p-speed" min="0" max="3" step="1" value="1" aria-label="Kecepatan / antisipasi blok"><b class="p-speed-v" id="p-speed-v">+1</b>
@@ -267,9 +267,27 @@
     // ---------- Sorotan & progres ----------
 
     let curIdx = -1;
+    // Efek karaoke (kata terlewati diredupkan + blok emas) hanya bermakna di
+    // mode suara — di sana tanda "sudah diucapkan". Mode gulir = pengguna
+    // membaca sendiri; kata yang tergulir lewat TIDAK boleh diredupkan.
+    function clearWordMarks() {
+      for (const w of S.words) {
+        if (w.el.classList.contains('done') || w.el.classList.contains('cur')) {
+          w.el.classList.remove('done');
+          w.el.classList.remove('cur');
+        }
+      }
+    }
     function highlight(pos) {
       const prev = curIdx;
       curIdx = pos - 1;
+      if (S.mode === 'timer') {
+        // Mode gulir: teks seragam — tanpa redup kata terlewati, tanpa blok emas.
+        clearWordMarks();
+        elPct.textContent = Math.round((pos / Math.max(1, S.words.length)) * 100) + '%';
+        elProgress.style.width = Math.min(100, (pos / Math.max(1, S.words.length)) * 100) + '%';
+        return;
+      }
       if (S.words[prev]) S.words[prev].el.classList.remove('cur');
       if (prev < 0) {
         for (let i = 0; i < pos; i++) S.words[i] && S.words[i].el.classList.add('done');
@@ -529,8 +547,15 @@
       const pct = Math.min(100, Math.round((elScroll.scrollTop / max) * 100));
       elPct.textContent = pct + '%';
       elProgress.style.width = pct + '%';
+      // Posisi hanya DICATAT, tidak ditandai: mode gulir menampilkan teks seragam
+      // (redup/blok emas hanya mode suara). Angka posisi dipakai saat lanjut main,
+      // klik kata, atau berganti ke mode suara agar mulai dari posisi terlihat.
       const pos = Math.round((pct / 100) * S.words.length);
-      if (pos !== curIdx + 1) highlight(pos);
+      if (pos !== curIdx + 1) {
+        curIdx = pos - 1;
+        S.committedPos = pos;
+        S.provisionalPos = pos;
+      }
     }
 
     // ---------- Play / pause & countdown ----------
@@ -585,7 +610,10 @@
       }
       const begin = () => {
         setPlaying(true);
-        scrollToWord(S.provisionalPos || 1);
+        // Mode suara: pusatkan blok emas. Mode timer: LANJUT dari posisi
+        // tampilan saat ini — jangan menggulir balik ke posisi klik terakhir
+        // (dulu: jeda di tengah lalu main membuat tampilan melompat).
+        if (S.mode === 'voice') scrollToWord(S.provisionalPos || 1);
       };
       if (!S.startedAt && !S.elapsed) countdown(begin);
       else begin();
@@ -867,7 +895,7 @@
         <div class="p-set-row"><span class="lbl">Panduan baris</span>
           <button class="p-ctrl ${settings.guide ? 'on' : ''}" id="ps-guide" style="min-width:60px;height:34px">${settings.guide ? 'Aktif' : 'Mati'}</button>
         </div>
-        <div class="p-set-row"><span class="lbl">Blok kata emas</span>
+        <div class="p-set-row"><span class="lbl">Blok kata emas (suara)</span>
           <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="ps-wordblock" style="min-width:60px;height:34px">${settings.wordBlock ? 'Aktif' : 'Mati'}</button>
         </div>
         <div class="p-set-row"><span class="lbl">Cermin horizontal (hood)</span>
@@ -967,8 +995,9 @@
       hudWake();
     }
 
-    function resyncFromView() {
-      // Cari kata terdekat dengan garis panduan (42% tinggi)
+    // Kata terdekat dengan garis panduan (42% tinggi) — dipakai sinkron ulang
+    // (R) dan saat berganti mode, agar posisi mengikuti apa yang sedang terlihat.
+    function wordAtGuide() {
       const ref = elScroll.scrollTop + elScroll.clientHeight * 0.42;
       let lo = 0;
       let hi = S.words.length - 1;
@@ -981,6 +1010,11 @@
           lo = mid + 1;
         } else hi = mid - 1;
       }
+      return best + 1;
+    }
+
+    function resyncFromView() {
+      const best = wordAtGuide() - 1;
       jumpTo(best + 1);
       toastBanner('Disinkronkan ke: "' + (S.words[best] ? S.words[best].raw : '') + '"');
     }
@@ -1019,6 +1053,20 @@
       applySpeedControl(); // makna slider HUD bawah mengikuti mode
       syncModeButtons();
       toastBanner('Mode gulir: ' + (mode === 'voice' ? 'Ikut Suara' : 'Timer'));
+      if (mode === 'timer') {
+        // Masuk mode gulir: bersihkan efek karaoke — teks kembali seragam
+        // (kata terlewati yang terlanjur diredupkan di mode suara dihapus).
+        clearWordMarks();
+      } else {
+        // Masuk mode suara: blok emas langsung terlihat di garis panduan dan
+        // penyelarasan dimulai dari kata yang sedang tampil — tanpa menggulir.
+        const p = wordAtGuide();
+        S.committedPos = p;
+        S.provisionalPos = p;
+        S.unmatchedRun = 0;
+        curIdx = -1;
+        highlight(p);
+      }
       if (S.playing) {
         setPlaying(false);
         setPlaying(true);
@@ -1269,8 +1317,9 @@
     renderSettingsPanel();
     applyTypography();
     syncAlignButtons(); // tombol HUD & panel pengaturan mengikuti rata teks tersimpan
-    highlight(0);
-    requestWakeLock();
+    // Fallback peramban tanpa dukungan suara wajib ditetapkan SEBELUM highlight
+    // pertama — mode timer tidak menandai kata (tanpa efek karaoke), jadi mode
+    // harus final dulu agar words[0] tidak sempat mendapat blok emas yang ngambang.
     if (!supportedVoice()) {
       S.mode = 'timer';
       settings.mode = 'timer';
@@ -1278,6 +1327,8 @@
       applySpeedControl();
       syncModeButtons(); // tombol HUD bawah ikut mode aktif
     }
+    highlight(0);
+    requestWakeLock();
     S._clock = setInterval(updateTime, 1000);
     hudWake();
     scrollToWord(1, false);

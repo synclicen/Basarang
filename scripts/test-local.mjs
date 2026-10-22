@@ -249,6 +249,28 @@ console.log('— Aset statis & kesehatan —');
       'pengaturan memudar tepi (fade atas/bawah)',
       t.includes('ps-fade') && t.includes('edgeFade') && t.includes('--fade-op') && (css.text || '').includes('opacity: var(--fade-op')
     );
+    // Regresi mode gulir: efek karaoke (kata terlewati diredupkan + blok emas)
+    // HANYA mode suara — updateTimerProgress dulu memanggil highlight() tiap
+    // tick sehingga kata di atas posisi proporsional "menghitam" dan mengganggu
+    // pembacaan pengguna mode gulir (laporan riil 22 Okt 2026).
+    {
+      const fnUpdate = t.slice(t.indexOf('function updateTimerProgress'), t.indexOf('function setPlaying'));
+      const fnSetMode = t.slice(t.indexOf('function setMode'), t.indexOf('function syncWordBlockButtons'));
+      const fnPlay = t.slice(t.indexOf('function playOrPause'), t.indexOf('function hudWake'));
+      check(
+        'mode gulir tanpa redup kata terlewati (karaoke hanya mode suara)',
+        t.includes('function clearWordMarks') && t.includes("if (S.mode === 'timer') {") &&
+          fnUpdate.includes('curIdx = pos - 1') && !fnUpdate.includes('highlight(')
+      );
+      check(
+        'ganti mode bersihkan/pasang penanda kata di posisi terlihat',
+        t.includes('function wordAtGuide') && fnSetMode.includes('clearWordMarks()') && fnSetMode.includes('wordAtGuide()')
+      );
+      check(
+        'mode timer lanjut main dari posisi tampilan (tidak melompat)',
+        fnPlay.includes("if (S.mode === 'voice') scrollToWord")
+      );
+    }
     check(
       'tombol HUD bawah: blok emas + ulang dari awal',
       t.includes('id="p-wordblock"') && t.includes('id="p-restart"') && t.includes('function restartFromTop') && t.includes('function toggleWordBlock') && t.includes('function syncWordBlockButtons')
