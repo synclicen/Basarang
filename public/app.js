@@ -7,7 +7,7 @@
   const $modalRoot = document.getElementById('modal-root');
   const $toastRoot = document.getElementById('toast-root');
 
-  const state = { user: null, needsSetup: false, booted: false, luring: false };
+  const state = { user: null, needsSetup: false, booted: false, luring: false, license: null };
 
   // ---------- Footer selalu terlihat ----------
 
@@ -274,6 +274,10 @@
     location.hostname === 'app.basarang.local' ||
     ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') &&
       new URLSearchParams(location.search).get('lokal') === '1');
+
+  // Modul lisensi (public/license.js — port sistem lisensi ARAY). Hanya
+  // dipakai di mode perangkat; situs web tetap memakai akun biasa.
+  const Lic = () => window.BasarangLicense || null;
 
   // Penyimpanan akun & sesi lokal — sengaja TIDAK memakai prefix 'bsng.' agar
   // tidak ikut terhapus saat Off.clearAll() (logout membersihkan cache/draf,
@@ -1353,7 +1357,8 @@
         <div class="topbar-actions">
           ${LOCAL
             ? '<span class="pill pill-ok" title="Mode perangkat — seluruh data tersimpan di perangkat ini tanpa internet; sinkronisasi ke server bersifat opsional">Perangkat</span>' +
-              '<button class="btn btn-ghost btn-sm" id="btn-sync" title="Sinkronisasi opsional dengan server Basarang (butuh internet)">' + I.sync + '<span class="hide-sm">Sinkron</span></button>'
+              '<button class="btn btn-ghost btn-sm" id="btn-sync" title="Sinkronisasi opsional dengan server Basarang (butuh internet)">' + I.sync + '<span class="hide-sm">Sinkron</span></button>' +
+              '<button class="btn btn-ghost btn-sm" id="btn-license" title="Status lisensi perangkat">' + I.key + '<span class="hide-sm">Lisensi</span></button>'
             : state.luring || !Off.online
             ? '<span class="pill pill-warn" title="Tanpa koneksi — menampilkan data tersimpan di perangkat; perubahan dikirim otomatis saat online">Luring</span>'
             : Off.queue.length
@@ -1361,7 +1366,7 @@
               : ''}
           ${adminBtn}
           <a class="btn btn-ghost btn-sm" href="#/dashboard" title="Proyek">${I.prompter}<span class="hide-sm">Proyek</span></a>
-          <button class="btn btn-ghost btn-sm" id="btn-pass" title="Ubah kata sandi">${I.key}</button>
+          ${LOCAL ? '' : '<button class="btn btn-ghost btn-sm" id="btn-pass" title="Ubah kata sandi">' + I.key + '</button>'}
           <div class="userchip">
             <span class="avatar">${esc(initials(u ? u.display_name : '?'))}</span>
             <span class="meta">
@@ -1369,7 +1374,7 @@
               <span class="rl">${esc(u ? roleName(u.role) : '')}</span>
             </span>
           </div>
-          <button class="btn btn-ghost btn-sm" id="btn-logout" title="Keluar">${I.logout}</button>
+          ${LOCAL ? '' : '<button class="btn btn-ghost btn-sm" id="btn-logout" title="Keluar">' + I.logout + '</button>'}
         </div>
       </div>
     </header>`;
@@ -1377,27 +1382,30 @@
 
   function bindLogout() {
     const b = document.getElementById('btn-logout');
-    if (!b) return;
-    b.addEventListener('click', async () => {
-      try {
-        await api('/auth/logout', { method: 'POST' });
-      } catch {
-        /* abaikan */
-      }
-      // Keluar = hapus semua data pribadi di perangkat (cache luring, draf, antrean).
-      Off.clearAll();
-      state.user = null;
-      state.needsSetup = false;
-      state.luring = false;
-      navigate('#/login');
-      toast('Anda telah keluar.', 'info');
-    });
+    if (b)
+      b.addEventListener('click', async () => {
+        try {
+          await api('/auth/logout', { method: 'POST' });
+        } catch {
+          /* abaikan */
+        }
+        // Keluar = hapus semua data pribadi di perangkat (cache luring, draf, antrean).
+        Off.clearAll();
+        state.user = null;
+        state.needsSetup = false;
+        state.luring = false;
+        navigate('#/login');
+        toast('Anda telah keluar.', 'info');
+      });
     const p = document.getElementById('btn-pass');
     if (p) p.addEventListener('click', () => passwordForm());
     // Tombol Sinkron (hanya mode perangkat): salin proyek & naskah dua arah
     // dengan server — opsional, data utama tetap di perangkat.
     const sb = document.getElementById('btn-sync');
     if (sb) sb.addEventListener('click', () => syncPanel());
+    // Tombol Lisensi (hanya mode perangkat): status + perpanjangan.
+    const lb = document.getElementById('btn-license');
+    if (lb) lb.addEventListener('click', () => navigate('#/lisensi'));
   }
 
   function passwordForm() {
@@ -1472,6 +1480,14 @@
       await viewPrompter(Number(parts[1]));
       return;
     }
+    // Gerbang lisensi (mode perangkat, seperti ARAY): tanpa lisensi valid,
+    // satu-satunya hal yang boleh dilihat pengguna adalah halaman lisensi.
+    if (LOCAL && (!state.license || !state.license.isValid)) {
+      return viewLicense(false);
+    }
+    if (page === 'lisensi') {
+      return viewLicense(true);
+    }
     if (state.needsSetup) {
       return viewSetup();
     }
@@ -1488,6 +1504,242 @@
       return viewAdmin();
     }
     navigate('#/dashboard');
+  }
+
+  // ---------- Lisensi: akun otomatis + view (mode perangkat) ----------
+
+  // Tanpa login di APK: begitu lisensi valid, akun lokal dibuat otomatis
+  // (pemilik perangkat bertindak sebagai super admin) dan sesi selalu
+  // dipulihkan — pengguna tidak pernah melihat form login di mode perangkat.
+  // Sandi acak tetap dihash (PBKDF2) agar struktur data identik dengan biasa.
+  async function ensureLocalAccount() {
+    const users = LocalApi.users();
+    let u = users.find((x) => x.is_active) || users[0];
+    if (!u) {
+      const rnd = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) =>
+        b.toString(16).padStart(2, '0')
+      ).join('');
+      const now = LocalApi.now();
+      u = {
+        id: LocalApi.nextId(),
+        username: 'pengguna',
+        email: 'pengguna@basarang.local',
+        display_name: 'Pengguna Basarang',
+        password_hash: await localHashPassword(rnd), // acak — tak pernah dipakai
+        role: 'super_admin',
+        is_active: true,
+        created_at: now,
+        last_login_at: now,
+      };
+      LocalApi.saveUsers([u]);
+    } else {
+      if (!u.is_active) u.is_active = true;
+      u.last_login_at = LocalApi.now();
+      LocalApi.saveUsers(users);
+    }
+    LR.set('session', { user_id: u.id, ts: Date.now() });
+  }
+
+  async function licenseActivated() {
+    state.license = (await Lic().status()) || state.license;
+    await ensureLocalAccount();
+    try {
+      const d = await api('/auth/me');
+      state.user = d.user;
+      state.needsSetup = false;
+    } catch {
+      state.user = null;
+    }
+    toast('Lisensi aktif — selamat menggunakan Basarang!', 'ok');
+    navigate('#/dashboard');
+  }
+
+  function licDate(iso) {
+    try {
+      return new Date(iso).toLocaleDateString('id-ID', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      });
+    } catch {
+      return String(iso || '-');
+    }
+  }
+
+  async function copyText(txt, btn) {
+    try {
+      await navigator.clipboard.writeText(txt);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* abaikan */ }
+      ta.remove();
+    }
+    if (btn) {
+      const old = btn.textContent;
+      btn.textContent = 'Tersalin';
+      setTimeout(() => { btn.textContent = old; }, 1800);
+    }
+  }
+
+  // valid=false → gerbang penguncian (belum/tidak lisensi); valid=true →
+  // halaman info lisensi (dibuka dari topbar saat aplikasi sudah aktif).
+  async function viewLicense(valid) {
+    const L = Lic();
+    if (!L) {
+      $app.innerHTML = `
+      <div class="auth-wrap container" id="lic-gate">
+        <div class="auth-card"><div class="auth-card"><div class="card">
+          <h3>Modul lisensi gagal dimuat</h3>
+          <p class="hint">Buka ulang aplikasi. Bila tetap terjadi, pasang ulang APK.</p>
+        </div></div></div>
+      </div>`;
+      return;
+    }
+    const st = await L.status();
+
+    if (valid) {
+      // ---- Halaman info (lisensi sudah valid) ----
+      $app.innerHTML = `${topbarHtml('lisensi')}
+      <main class="page container" id="lic-info">
+        <div class="card lic-card">
+          <h2>Lisensi Perangkat</h2>
+          <p class="hint" style="margin-top:-.4rem">Mode perangkat — seluruh data tersimpan lokal; lisensi mengikat ke perangkat ini.</p>
+          <dl class="lic-rows">
+            <div><dt>Status</dt><dd>${st.isValid ? (st.isGracePeriod ? 'Mode acara (perpanjangan otomatis ' + st.graceHoursRemaining + ' jam)' : 'Aktif') : 'Tidak aktif'}</dd></div>
+            <div><dt>Tipe lisensi</dt><dd>Bulanan — 30 hari</dd></div>
+            ${st.activatedAt ? `<div><dt>Diaktivasi</dt><dd>${licDate(st.activatedAt)}</dd></div>` : ''}
+            ${st.expiresAt ? `<div><dt>Berlaku hingga</dt><dd>${licDate(st.expiresAt)}</dd></div>` : ''}
+            <div><dt>Sisa waktu</dt><dd>${st.isValid ? (st.isGracePeriod ? '—' : st.daysRemaining + ' hari') : '0 hari'}</dd></div>
+            <div><dt>Machine ID</dt><dd><code class="lic-mid" id="lic-machine-id">${esc(st.machineId)}</code></dd></div>
+          </dl>
+          <div class="lic-actions">
+            <button class="btn btn-ghost" type="button" id="lic-copy">Salin Machine ID</button>
+            <a class="btn btn-gold" href="#/dashboard">Kembali</a>
+          </div>
+          <p class="hint">Perpanjangan: kirim Machine ID di atas ke pengembang untuk kode baru.</p>
+        </div>
+      </main>`;
+      bindLogout();
+      const cp = document.getElementById('lic-copy');
+      if (cp) cp.addEventListener('click', () => copyText(st.machineId, cp));
+      return;
+    }
+
+    // ---- Gerbang penguncian (port LicenseGate ARAY) ----
+    const kadaluarsa = !st.isValid && st.expiresAt;
+    $app.innerHTML = `
+    <div class="auth-wrap container" id="lic-gate">
+      <div class="auth-card">
+        <div class="auth-hero">
+          <div class="mark-trio">
+            <span class="mark mark-gold">${I.prompter}</span>
+            <span class="mark mark-purple">${I.mic}</span>
+            <span class="mark mark-silver">${I.auto}</span>
+          </div>
+          <h1><em>BASARANG</em>: Bagarak Saurang</h1>
+          <p class="tag">Aktivasi lisensi — masa pakai <b>1 bulan</b>, tanpa akun.</p>
+          <div class="feature-row">
+            <span class="pill pill-gold">Full offline</span><span class="pill pill-purple">Tanpa login</span>
+          </div>
+        </div>
+        <form class="card" id="lic-form" novalidate>
+          <label class="field">
+            <span class="label-txt">Machine ID perangkat ini</span>
+            <span class="lic-mid-row">
+              <code class="lic-mid" id="lic-machine-id">${esc(st.machineId || '…')}</code>
+              <button class="btn btn-ghost btn-sm" type="button" id="lic-copy" title="Salin Machine ID">Salin</button>
+            </span>
+            <span class="hint">Kirim Machine ID ini ke pengembang untuk mendapatkan kode aktivasi (WhatsApp pun cukup).</span>
+          </label>
+          <label class="field">
+            <span class="label-txt">Kode aktivasi</span>
+            <input class="input lic-code-input" id="lic-code" name="code"
+                   maxlength="19" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+            <span class="hint">Format: XXXX-XXXX-XXXX-XXXX — berlaku 30 hari sejak diterbitkan. Hubungi pengembang untuk perpanjangan.</span>
+          </label>
+          ${kadaluarsa ? `<div class="lic-expired">Lisensi sebelumnya kedaluwarsa pada ${licDate(st.expiresAt)}.</div>` : ''}
+          <div class="form-err" id="lic-err"></div>
+          <button class="btn btn-gold btn-block btn-lg" type="submit" id="lic-activate">Aktivasi Lisensi</button>
+        </form>
+        <div class="lic-dev-wrap">
+          <button class="lic-dev-toggle" type="button" id="lic-dev-toggle">Mode Pengembang</button>
+          <div class="lic-dev" id="lic-dev" hidden>
+            <label class="field">
+              <span class="label-txt">Machine ID (64 heksadesimal)</span>
+              <input class="input mono-input" id="lic-dev-mid" autocomplete="off" spellcheck="false">
+            </label>
+            <label class="field">
+              <span class="label-txt">Admin key</span>
+              <input class="input mono-input" id="lic-dev-key" type="password" maxlength="16" autocomplete="off">
+            </label>
+            <div class="form-err" id="lic-dev-err"></div>
+            <button class="btn btn-ghost btn-block" type="button" id="lic-dev-go">Buat Kode Aktivasi (30 hari)</button>
+            <div class="lic-dev-out" id="lic-dev-out" hidden>
+              <code id="lic-dev-code"></code>
+              <button class="btn btn-ghost btn-sm" type="button" id="lic-dev-copy">Salin</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    const cp = document.getElementById('lic-copy');
+    if (cp) cp.addEventListener('click', () => copyText(st.machineId, cp));
+
+    const form = document.getElementById('lic-form');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('lic-err');
+      const btn = document.getElementById('lic-activate');
+      errEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Mengaktivasi…';
+      try {
+        const r = await L.activate(document.getElementById('lic-code').value.trim());
+        if (!r || !r.success) throw new Error((r && r.error) || 'Aktivasi gagal.');
+        await licenseActivated();
+      } catch (err) {
+        errEl.textContent = err.message;
+        btn.disabled = false;
+        btn.textContent = 'Aktivasi Lisensi';
+      }
+    });
+
+    const devToggle = document.getElementById('lic-dev-toggle');
+    const devBox = document.getElementById('lic-dev');
+    devToggle.addEventListener('click', () => {
+      devBox.hidden = !devBox.hidden;
+      if (!devBox.hidden && st.machineId && !document.getElementById('lic-dev-mid').value) {
+        document.getElementById('lic-dev-mid').value = st.machineId;
+      }
+    });
+    document.getElementById('lic-dev-go').addEventListener('click', async () => {
+      const errEl = document.getElementById('lic-dev-err');
+      const out = document.getElementById('lic-dev-out');
+      errEl.textContent = '';
+      out.hidden = true;
+      const btn = document.getElementById('lic-dev-go');
+      btn.disabled = true;
+      try {
+        const r = await L.generateFor(
+          document.getElementById('lic-dev-mid').value.trim(),
+          document.getElementById('lic-dev-key').value.trim()
+        );
+        if (!r || !r.success) throw new Error((r && r.error) || 'Generate gagal.');
+        document.getElementById('lic-dev-code').textContent = r.data.activationCode;
+        out.hidden = false;
+      } catch (err) {
+        errEl.textContent = err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    document.getElementById('lic-dev-copy').addEventListener('click', (e) => {
+      copyText(document.getElementById('lic-dev-code').textContent, e.currentTarget);
+    });
   }
 
   // ---------- View: Setup pertama ----------
@@ -2496,6 +2748,22 @@
   // ---------- Boot ----------
 
   async function boot() {
+    // Mode perangkat (APK): gerbang lisensi seperti ARAY — cek lisensi lebih
+    // dulu sebelum apa pun. Tanpa lisensi valid, hanya halaman lisensi yang
+    // tampil; dengan lisensi valid, akun lokal dipulihkan/dibuat otomatis
+    // (tidak ada login username/kata sandi di APK) dan sesi acara dimulai
+    // (grace 72 jam — teleprompter tak mati di tengah acara).
+    if (LOCAL && Lic()) {
+      try {
+        state.license = await Lic().status();
+      } catch {
+        state.license = null;
+      }
+      if (state.license && state.license.isValid) {
+        try { await Lic().startEventSession(); } catch { /* abaikan */ }
+        await ensureLocalAccount();
+      }
+    }
     try {
       const d = await api('/auth/me');
       state.user = d.user;
@@ -2515,7 +2783,12 @@
       }
     }
     state.booted = true;
-    if (!location.hash) location.hash = state.user ? '#/dashboard' : state.needsSetup ? '#/setup' : '#/login';
+    if (LOCAL && (!state.license || !state.license.isValid)) {
+      // Gerbang lisensi: alamat apa pun dialihkan ke halaman lisensi.
+      if (location.hash !== '#/lisensi') location.hash = '#/lisensi';
+    } else if (!location.hash) {
+      location.hash = state.user ? '#/dashboard' : state.needsSetup ? '#/setup' : '#/login';
+    }
     render();
     // Antrean sinkron & pemantau online/offline hanya relevan di mode web —
     // mode perangkat tidak pernah mem-fetch (LocalApi) dan jauh lebih tenang

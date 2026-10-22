@@ -19,6 +19,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { createHash, createHmac } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +32,34 @@ const ROOT = join(HERE, '..');
 const PORT = 8799;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SHIM_SRC = readFileSync(join(ROOT, 'android/assets/speech_shim.js'), 'utf8');
+
+// Algoritma lisensi — identik public/license.js & tools/generate-license.mjs
+// (dipakai untuk menghitung kode aktivasi dari Machine ID yang tampil di UI).
+const LIC_SECRET = 'BASARANG-2026-HUMAS-UIN-ANTASARI-BANJARMASIN';
+function licCode(machineId, expiresAt) {
+  const expiryStr = new Date(expiresAt).getTime().toString(16);
+  const hash = createHash('sha256').update(`${machineId}:monthly:${expiryStr}:${LIC_SECRET}`).digest('hex');
+  const c = hash.substring(0, 16).toUpperCase();
+  return `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8, 12)}-${c.slice(12, 16)}`;
+}
+function licExpiryIn30d() {
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  d.setHours(23, 59, 59, 0);
+  return d.toISOString();
+}
+function licSignedData(machineId, code, expiresAt) {
+  const d = {
+    machineId, activationCode: code, licenseType: 'monthly',
+    activatedAt: new Date().toISOString(), expiresAt, signature: '',
+  };
+  const payload = JSON.stringify({
+    machineId: d.machineId, activationCode: d.activationCode, licenseType: d.licenseType,
+    activatedAt: d.activatedAt, expiresAt: d.expiresAt,
+  });
+  d.signature = createHmac('sha256', LIC_SECRET).update(payload).digest('hex');
+  return d;
+}
 
 // ---------- Mock D1 (identik scripts/test-local.mjs) ----------
 
@@ -463,9 +492,9 @@ console.log('— Server "sakit" (kuota tulis D1 habis): antrean tak dibuang —'
   check('server pulih: isi hasil edit saat server sakit diterima (cocok)', d2.data?.data?.script?.content === ISI_SAKIT);
 }
 
-console.log('— Mode perangkat (APK full offline): dari nol, jaringan diputus total —');
+console.log('— Mode perangkat (APK full offline): gerbang lisensi ARAY + tanpa login —');
 {
-  // Simulasi APK v1.2.0 pada HP tanpa internet: konteks penyimpanan BERSIH,
+  // Simulasi APK v1.3.0 pada HP tanpa internet: konteks penyimpanan BERSIH,
   // ?lokal=1 mengaktifkan mode perangkat (di APK: origin app.basarang.local).
   // Service worker berperan sebagai pengganti "aset yang dibundel di dalam APK".
   const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -487,19 +516,40 @@ console.log('— Mode perangkat (APK full offline): dari nol, jaringan diputus t
   // PUTUS JARINGAN SEPENUHNYA — persis HP tanpa sinyal sejak awal.
   await ctx2.setOffline(true);
   await p2.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
-  await p2.waitForSelector('#setup-form', { timeout: 15000 });
-  check('APK offline: aplikasi terbuka & meminta inisialisasi akun perangkat', true);
 
-  await p2.fill('#setup-form input[name=display_name]', 'Humas Perangkat');
-  await p2.fill('#setup-form input[name=username]', 'humas');
-  await p2.fill('#setup-form input[name=password]', 'sandi-perangkat-2026');
-  await p2.click('#setup-form button[type=submit]');
+  // Gerbang lisensi tampil PERTAMA setelah "instal" — bukan setup/login.
+  await p2.waitForSelector('#lic-gate', { timeout: 15000 });
+  check('APK: halaman LISENSI tampil pertama (bukan inisialisasi akun / login)', true);
+  const noAuthForms = !(await p2.$('#setup-form')) && !(await p2.$('#login-form'));
+  check('APK: tidak ada form username/kata sandi di gerbang', noAuthForms);
+  const mid = (await p2.textContent('#lic-machine-id')).trim();
+  check('APK: Machine ID 64 heksadesimal tampil & bisa dikirim ke pengembang', /^[a-f0-9]{64}$/.test(mid), mid.slice(0, 16) + '…');
+
+  // Kode salah → ditolak dengan pesan jelas.
+  await p2.fill('#lic-code', 'AAAA-BBBB-CCCC-DDDD');
+  await p2.click('#lic-activate');
+  await p2.waitForFunction(
+    () => ((document.getElementById('lic-err') || {}).textContent || '').length > 0,
+    null,
+    { timeout: 15000 }
+  );
+  const errTxt = await p2.textContent('#lic-err');
+  check('APK: kode aktivasi salah ditolak dengan pesan', /tidak valid/i.test(errTxt), errTxt.trim());
+
+  // Kode benar (dihitung Node dari Machine ID yang tampil — algoritma identik).
+  const kode = licCode(mid, licExpiryIn30d());
+  await p2.fill('#lic-code', kode);
+  await p2.click('#lic-activate');
   await p2.waitForFunction(() => location.hash === '#/dashboard', null, { timeout: 15000 });
-  check('APK offline: akun super admin perangkat dibuat (PBKDF2 lokal, tanpa server)', true);
+  check('APK: aktivasi sukses → LANGSUNG dashboard (tanpa akun, tanpa login)', true);
 
   const tbL = await p2.textContent('.topbar').catch(() => '');
-  check('APK offline: pil "Perangkat" tampil di topbar', tbL.includes('Perangkat'), tbL.slice(0, 80).trim());
-  check('APK offline: tombol Sinkron opsional tampil di topbar', !!(await p2.$('#btn-sync')));
+  check('APK: pil "Perangkat" tampil di topbar', tbL.includes('Perangkat'), tbL.slice(0, 80).trim());
+  check('APK: tombol Sinkron opsional tampil di topbar', !!(await p2.$('#btn-sync')));
+  check('APK: tombol Lisensi tampil di topbar', !!(await p2.$('#btn-license')));
+  check('APK: tombol Keluar & Ubah Sandi TIDAK ada (tanpa login)', !(await p2.$('#btn-logout')) && !(await p2.$('#btn-pass')));
+  const nmChip = await p2.textContent('.userchip .nm').catch(() => '');
+  check('APK: akun otomatis "Pengguna Basarang" dibuat tanpa form', nmChip.trim() === 'Pengguna Basarang', nmChip.trim());
 
   // Buat proyek + naskah sepenuhnya offline.
   await p2.click('#btn-new-proj');
@@ -563,21 +613,25 @@ console.log('— Mode perangkat (APK full offline): dari nol, jaringan diputus t
   await p2.evaluate(() => document.getElementById('p-exit').click());
   await sleep(400);
 
-  // Keluar → masuk kembali: akun & data perangkat TIDAK hilang saat logout.
+  // "Buka ulang aplikasi": lisensi + akun otomatis bertahan — TANPA gerbang
+  // lisensi dan TANPA login (dulu: keluar → form login → masuk lagi).
   await p2.evaluate(() => {
     location.hash = '#/dashboard';
   });
-  await p2.waitForSelector('#btn-logout', { timeout: 15000 });
-  await p2.click('#btn-logout');
-  await p2.waitForSelector('#login-form input[name=username]', { timeout: 15000 });
-  check('APK offline: keluar → halaman masuk (akun perangkat tetap ada)', true);
-
-  await p2.fill('#login-form input[name=username]', 'humas');
-  await p2.fill('#login-form input[name=password]', 'sandi-perangkat-2026');
-  await p2.click('#login-form button[type=submit]');
-  await p2.waitForFunction(() => location.hash === '#/dashboard', null, { timeout: 15000 });
+  await p2.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+  await p2.waitForSelector('#btn-license', { timeout: 15000 });
+  const masihMasuk = (await p2.evaluate(() => location.hash)) === '#/dashboard' && !(await p2.$('#lic-gate'));
   const kartu = await p2.$$eval('#dash-projects .proj-card h3', (ns) => ns.map((n) => n.textContent));
-  check('APK offline: masuk kembali → data perangkat utuh (proyek tampil)', kartu.includes('Proyek Luring'), JSON.stringify(kartu));
+  check('APK: buka ulang → langsung masuk (lisensi & sesi bertahan, tanpa login)', masihMasuk);
+  check('APK: buka ulang → data perangkat utuh (proyek tampil)', kartu.includes('Proyek Luring'), JSON.stringify(kartu));
+
+  // Halaman info lisensi dari topbar: status, sisa hari, Machine ID.
+  await p2.click('#btn-license');
+  await p2.waitForSelector('#lic-info', { timeout: 15000 });
+  const infoTxt = await p2.textContent('#lic-info');
+  check('APK: halaman info lisensi (status + sisa waktu + Machine ID)', infoTxt.includes('Lisensi Perangkat') && infoTxt.includes('hari') && infoTxt.includes(mid), infoTxt.slice(0, 80).trim());
+  await p2.click('#lic-info a[href="#/dashboard"]');
+  await p2.waitForSelector('#dash-projects', { timeout: 15000 });
 
   check(
     'APK offline: TIDAK ADA satu pun permintaan /api ke server sepanjang alur',
@@ -639,6 +693,43 @@ console.log('— Mode perangkat (APK full offline): dari nol, jaringan diputus t
   }
 
   await ctx2.close();
+}
+
+console.log('— Lisensi: kedaluwarsa mengunci & web tanpa gerbang —');
+{
+  // Lisensi kedaluwarsa (kode utk kemarin, ditandatangani benar, tanpa sesi
+  // acara) → aplikasi terkunci kembali ke gerbang lisensi.
+  const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const p3 = await ctx3.newPage();
+  p3.on('pageerror', (e) => console.error('  [pageerror-exp]', e.message));
+  await p3.goto(BASE + '/?lokal=1', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  const mid3 = await p3.evaluate(async () => {
+    await window.BasarangLicense.machineId();
+    return (await window.BasarangLicense.machineId());
+  });
+  const kemarin = new Date();
+  kemarin.setDate(kemarin.getDate() - 1);
+  kemarin.setHours(23, 59, 59, 0);
+  await p3.evaluate((raw) => {
+    localStorage.setItem('basarang.license.data', raw);
+    localStorage.removeItem('basarang.license.session');
+  }, JSON.stringify(licSignedData(mid3, licCode(mid3, kemarin.toISOString()), kemarin.toISOString())));
+  await p3.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+  await p3.waitForSelector('#lic-gate', { timeout: 15000 });
+  const kunci = (await p3.evaluate(() => location.hash)) === '#/lisensi' && !(await p3.$('.topbar'));
+  check('lisensi kedaluwarsa: terkunci kembali ke gerbang (alamat #/lisensi)', kunci);
+  const gateTxt = await p3.textContent('#lic-gate');
+  check('lisensi kedaluwarsa: pesan kedaluwarsa + informasi perpanjangan tampil', /kedaluwarsa/i.test(gateTxt) && /pengembang/i.test(gateTxt));
+  await ctx3.close();
+
+  // Situs web (tanpa ?lokal=1): TIDAK ada gerbang lisensi — tetap login biasa.
+  const ctx4 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const p4 = await ctx4.newPage();
+  p4.on('pageerror', (e) => console.error('  [pageerror-web]', e.message));
+  await p4.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await p4.waitForSelector('#login-form', { timeout: 15000 });
+  check('web (tanpa ?lokal=1): login biasa — TIDAK ada gerbang lisensi', !(await p4.$('#lic-gate')));
+  await ctx4.close();
 }
 
 // ---------- Rapikan ----------

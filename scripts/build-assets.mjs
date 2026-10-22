@@ -14,6 +14,7 @@ const FILES = [
   { route: '/style.css', file: 'style.css', type: 'text/css; charset=utf-8' },
   { route: '/app.js', file: 'app.js', type: 'application/javascript; charset=utf-8' },
   { route: '/align.js', file: 'align.js', type: 'application/javascript; charset=utf-8' },
+  { route: '/license.js', file: 'license.js', type: 'application/javascript; charset=utf-8' },
   { route: '/prompter.js', file: 'prompter.js', type: 'application/javascript; charset=utf-8' },
   { route: '/favicon.svg', file: 'favicon.svg', type: 'image/svg+xml' },
   { route: '/sw.js', file: 'sw.js', type: 'application/javascript; charset=utf-8' },

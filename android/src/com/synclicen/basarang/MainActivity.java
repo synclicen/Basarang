@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -59,6 +60,12 @@ import java.util.Map;
  *    coba lagi + percobaan ulang otomatis tiap 15 detik.
  *  - Tombol kembali: menelusuri riwayat hash SPA; keluar perlu tekan dua kali.
  *  - Layar dijaga tetap menyala hanya saat teleprompter terbuka (dari shim).
+ *  - LISENSI (v1.3.0, port sistem ARAY): jembatan NativeDevice menyediakan
+ *    ANDROID_ID sebagai identitas perangkat yang stabil (tidak berubah oleh
+ *    rotasi, bahasa, zona waktu, atau pembaruan WebView — hanya reset pabrik;
+ *    di Android 8+ unik per kunci tanda tangan). Halaman web
+ *    (public/license.js) mengubahnya menjadi Machine ID SHA-256 untuk
+ *    sistem lisensi bulanan 30 hari tanpa login.
  */
 public class MainActivity extends Activity {
 
@@ -151,6 +158,9 @@ public class MainActivity extends Activity {
         });
 
         web.addJavascriptInterface(new NativeSpeechBridge(), "NativeSpeech");
+        // Identitas perangkat untuk sistem lisensi (lihat komentar kelas) —
+        // dibaca public/license.js saat mode perangkat menghitung Machine ID.
+        web.addJavascriptInterface(new NativeDeviceBridge(), "NativeDevice");
 
         if (savedInstanceState == null) {
             web.loadUrl(START_URL);
@@ -326,6 +336,25 @@ public class MainActivity extends Activity {
             is.close();
             view.evaluateJavascript(bo.toString("UTF-8"), null);
         } catch (Exception ignored) { }
+    }
+
+    /* ---------- jembatan identitas perangkat (lisensi) ---------- */
+
+    // ANDROID_ID: heksadesimal 16 karakter, stabil sepanjang umur perangkat
+    // (di Android 8+ di-scope per kunci tanda tangan aplikasi — pemasangan
+    // ulang tidak mengubahnya; hanya reset pabrik yang mengganti). Tanpa izin.
+    // Sengaja TIDAK memakai sidik jari peramban (userAgent/layar) agar Machine
+    // ID tidak berubah akibat rotasi, ganti bahasa, atau update WebView.
+    private class NativeDeviceBridge {
+        @JavascriptInterface
+        public String deviceId() {
+            try {
+                String id = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+                return id == null ? "" : id.toLowerCase(Locale.ROOT);
+            } catch (Exception e) {
+                return "";
+            }
+        }
     }
 
     /* ---------- jembatan pengenalan suara native ---------- */

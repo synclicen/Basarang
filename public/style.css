@@ -796,3 +796,98 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 }
 /* Pil status di topbar: "Luring" / "Kirim tertunda (N)" */
 .pill-warn { color: var(--gold-1); border-color: rgba(232, 181, 77, 0.5); background: rgba(232, 181, 77, 0.12); }
+
+/* ---------- Halaman lisensi (mode perangkat — port LicenseGate ARAY) ---------- */
+.lic-mid-row { display: flex; gap: 8px; align-items: stretch; }
+.lic-mid {
+  flex: 1;
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--silver-2);
+  background: rgba(10, 6, 22, 0.55);
+  border: 1px solid var(--glass-strong);
+  border-radius: var(--r-2);
+  padding: 10px 12px;
+  max-height: 5.4rem;
+  overflow-y: auto;
+  user-select: all;
+}
+.lic-code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  text-align: center;
+  font-size: 1.02rem;
+}
+.mono-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+.lic-expired {
+  margin: 4px 0 10px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 122, 138, 0.4);
+  background: rgba(255, 122, 138, 0.09);
+  color: var(--err);
+  border-radius: var(--r-2);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.lic-dev-wrap { margin-top: 10px; text-align: center; }
+.lic-dev-toggle {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 6px 10px;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.lic-dev-toggle:hover { color: var(--silver-2); }
+.lic-dev {
+  margin-top: 8px;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid rgba(157, 123, 234, 0.28);
+  background: rgba(34, 23, 67, 0.45);
+  border-radius: var(--r-3);
+}
+.lic-dev-out {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(87, 217, 163, 0.4);
+  background: rgba(87, 217, 163, 0.08);
+  border-radius: var(--r-2);
+}
+.lic-dev-out code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  color: var(--ok);
+  word-break: break-all;
+  user-select: all;
+}
+/* Halaman info lisensi (topbar → Lisensi) */
+.lic-card { max-width: 560px; margin: 0 auto; }
+.lic-rows { margin: 14px 0 6px; display: grid; gap: 8px; }
+.lic-rows > div {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 12px;
+  border: 1px solid var(--glass);
+  background: rgba(10, 6, 22, 0.35);
+  border-radius: var(--r-2);
+}
+.lic-rows dt { color: var(--muted); font-size: var(--fs-sm); }
+.lic-rows dd { margin: 0; color: var(--text-1); font-size: var(--fs-sm); word-break: break-word; }
+.lic-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 12px; }

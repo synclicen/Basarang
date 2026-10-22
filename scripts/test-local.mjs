@@ -2,7 +2,7 @@
 // Menjalankan fetch() worker yang sama persis dengan yang dideploy ke Cloudflare.
 
 import { DatabaseSync } from 'node:sqlite';
-import { rmSync, mkdtempSync } from 'node:fs';
+import { rmSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import worker from '../src/index.js';
@@ -862,6 +862,54 @@ console.log('— Aplikasi Android (APK full offline): marker, token Bearer, CORS
   check(
     'index.html: service worker TIDAK didaftarkan di origin APK (aset sudah lokal)',
     html.includes("location.hostname !== 'app.basarang.local'")
+  );
+
+  // ---- Sistem lisensi ARAY (APK v1.3.0): gerbang + tanpa login ----
+  const licQ = await req(null, 'GET', '/license.js');
+  const lic = (licQ.res && (await licQ.res.text())) || '';
+  check(
+    'license.js: disajikan worker — port ARAY (kode aktivasi + HMAC + grace)',
+    lic.includes('BASARANG-2026-HUMAS-UIN-ANTASARI-BANJARMASIN') &&
+      lic.includes('generateFor') && lic.includes('EVENT_GRACE_HOURS') && lic.includes('crypto.subtle')
+  );
+  check(
+    'index.html: license.js dimuat SEBELUM app.js (defer berurutan)',
+    /license\.js[^]*?app\.js/.test(html) && html.includes('<script src="/license.js" defer></script>')
+  );
+  check(
+    'app.js: gerbang lisensi mode perangkat — rute #/lisensi + viewLicense',
+    a.includes("page === 'lisensi'") && a.includes('viewLicense(false)') && a.includes('viewLicense(true)') && a.includes("location.hash = '#/lisensi'")
+  );
+  check(
+    'app.js: boot mode perangkat cek lisensi DULU + akun otomatis (tanpa form)',
+    a.includes('state.license = await Lic().status();') && a.includes('await ensureLocalAccount();') && a.includes("display_name: 'Pengguna Basarang'")
+  );
+  check(
+    'app.js: topbar mode perangkat — tombol Lisensi, TANPA tombol Keluar/Sandi',
+    a.includes('id="btn-license"') && a.includes("${LOCAL ? '' : '<button class=\"btn btn-ghost btn-sm\" id=\"btn-logout\"") && a.includes("${LOCAL ? '' : '<button class=\"btn btn-ghost btn-sm\" id=\"btn-pass\"")
+  );
+  check(
+    'app.js: gerbang menampilkan Machine ID + Mode Pengembang (port LicenseGate ARAY)',
+    a.includes('id="lic-machine-id"') && a.includes('id="lic-dev-toggle"') && a.includes('id="lic-dev-go"') && a.includes('Salin Machine ID')
+  );
+  const swQ = await req(null, 'GET', '/sw.js');
+  const swTxt = (swQ.res && (await swQ.res.text())) || '';
+  check(
+    'sw.js: license.js masuk shell cache + versi dinaikkan (v1.3.0)',
+    swTxt.includes("'/license.js'") && swTxt.includes("'v1.3.0'")
+  );
+  const ROOT = '.';
+  const genSrc = readFileSync(join(ROOT, 'tools/generate-license.mjs'), 'utf8');
+  check(
+    'tools/generate-license.mjs: secret sama + format kode sama (kode saling berlaku)',
+    genSrc.includes('BASARANG-2026-HUMAS-UIN-ANTASARI-BANJARMASIN') &&
+      genSrc.includes('code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8, 12)}-${code.slice(12, 16)}') &&
+      lic.includes("code.slice(0, 4) + '-' + code.slice(4, 8) + '-' + code.slice(8, 12) + '-' + code.slice(12, 16)")
+  );
+  const mainJava = readFileSync(join(ROOT, 'android/src/com/synclicen/basarang/MainActivity.java'), 'utf8');
+  check(
+    'MainActivity.java: jembatan NativeDevice (ANDROID_ID) utk Machine ID stabil',
+    mainJava.includes('"NativeDevice"') && mainJava.includes('Settings.Secure.ANDROID_ID')
   );
 
   // ---- Perilaku server untuk APK: login lintas origin + Bearer + CORS ----

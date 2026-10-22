@@ -3,8 +3,54 @@
 Cangkang Android native untuk Basarang: Bagarak Saurang — AI Teleprompter
 (Pusat Humas dan Keterbukaan Informasi, UIN Antasari Banjarmasin).
 
-Aplikasi memuat [basarang.synclicen.workers.dev](https://basarang.synclicen.workers.dev)
-di dalam WebView, **tanpa mengubah kode web sama sekali**.
+Aplikasi **membundel seluruh aset web di dalam paket** (`assets/www`, disalin
+dari `public/` saat build) dan menyajikannya dari origin virtual
+`https://app.basarang.local` — 100% offline, tanpa memuat apa pun dari internet.
+Sejak **v1.3.0**, APK memakai **sistem lisensi bulanan** (port dari
+[ARAY](https://github.com/synclicen/ARAY)) dan **tanpa login** username/kata
+sandi (lihat "Sistem Lisensi" di bawah).
+
+## Sistem Lisensi (v1.3.0 — port dari ARAY)
+
+Login username/kata sandi tidak cocok untuk APK; sebagai gantinya dipakai
+**lisensi perangkat bulanan** dengan alur identik ARAY (Level 1: Offline
+Activation):
+
+1. Saat pertama dibuka setelah instal, aplikasi menampilkan **halaman
+   lisensi** berisi **Machine ID** perangkat (64 heksadesimal) + tombol Salin.
+2. Pengguna mengirim Machine ID ke pengembang (WhatsApp dsb.).
+3. Pengembang menerbitkan **Kode Aktivasi** `XXXX-XXXX-XXXX-XXXX`:
+   ```bash
+   node tools/generate-license.mjs <machineId>   # berlaku 30 hari
+   node tools/generate-license.mjs --admin-key   # Admin Key utk mode pengembang
+   ```
+4. Pengguna memasukkan kode → aplikasi memverifikasi **sepenuhnya offline**
+   (SHA-256 machineId + tipe + kedaluwarsa + SECRET) → langsung masuk
+   aplikasi **tanpa akun, tanpa login** (akun lokal dibuat otomatis).
+5. Setiap pembukaan aplikasi memverifikasi ulang lisensi. **Lisensi berlaku
+   30 hari**; setelah itu pengguna meminta kode baru.
+
+Detail teknis:
+
+- **Machine ID stabil**: `MainActivity` menyediakan jembatan `NativeDevice`
+  yang membaca `ANDROID_ID` (stabil terhadap rotasi, bahasa, zona waktu, dan
+  pembaruan WebView; hanya reset pabrik yang mengganti). Di luar APK
+  (`localhost?lokal=1` untuk pengujian) memakai sidik jari peramban yang sudah
+  dinormalisasi min×max agar kebal rotasi layar.
+- **Anti utak-atik**: data lisensi di localStorage ditandatangani HMAC-SHA256;
+  mengubah `expiresAt` tanpa re-sign membuat lisensi tidak valid.
+- **Grace sesi acara 72 jam**: penanda sesi diperbarui setiap boot dengan
+   lisensi valid — bila lisensi berakhir tepat sebelum/saat acara, aplikasi
+   tetap terbuka selama 72 jam sejak boot valid terakhir (teleprompter tidak
+   mati di tengah acara; perbaikan kecil atas ARAY yang penandanya hanya
+   ditulis sekali).
+- **Mode Pengembang** di halaman lisensi: pengembang bisa menerbitkan kode
+   langsung dari perangkat mana pun dengan Admin Key
+   (`node tools/generate-license.mjs --admin-key` mencetak nilainya).
+- Situs web (tanpa `?lokal=1`) **tidak terpengaruh** — tetap login biasa.
+- Tingkat keamanan sama seperti ARAY (Level 1 — offline activation): secret
+  ikut terbundel di klien, cukup untuk lisensi komersial ringan, bukan
+   anti-pembajakan militer.
 
 ## Mengapa perlu cangkang native?
 
