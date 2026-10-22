@@ -1,31 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.fajrianor.basarang"
-    android:versionCode="1"
-    android:versionName="1.0">
+    package="com.synclicen.basarang"
+    android:versionCode="3"
+    android:versionName="1.2.0">
 
-    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
-
-    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
 
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme"
         android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="false"
         android:allowBackup="true">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode|density"
-            android:windowSoftInputMode="adjustResize">
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode|density">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

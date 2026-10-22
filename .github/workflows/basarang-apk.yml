@@ -1,0 +1,119 @@
+name: Basarang APK
+
+on:
+  workflow_dispatch:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/basarang-apk.yml'
+
+# contents:write agar bisa menerbitkan Release (unduhan langsung APK dari HP).
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v4
+
+      - name: Siapkan Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Pasang komponen Android SDK
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          # sdkmanager tidak lagi di PATH image runner — cari, atau unduh sendiri.
+          SDKM="$(command -v sdkmanager || true)"
+          [ -n "$SDKM" ] || SDKM="$(find "$SDK" -type f -name sdkmanager 2>/dev/null | sort | tail -n1)"
+          if [ -z "$SDKM" ]; then
+            echo "cmdline-tools tidak ditemukan — mengunduh…"
+            cd /tmp
+            curl -sSLo ct.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q ct.zip
+            mkdir -p "$SDK/cmdline-tools"
+            rm -rf "$SDK/cmdline-tools/latest"
+            mv cmdline-tools "$SDK/cmdline-tools/latest"
+            SDKM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" --install "platforms;android-34" "build-tools;35.0.0" > /dev/null
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      - name: Uji kontrak shim SpeechRecognition
+        run: node android/test-shim.mjs
+
+      - name: Siapkan keystore penandatanganan
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_STORE_PASS }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KS_KEYPASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > android/basarang.keystore
+            printf 'STORE_FILE=basarang.keystore\nSTORE_PASS=%s\nKEY_ALIAS=%s\nKEY_PASS=%s\n' \
+              "$KS_PASS" "$KS_ALIAS" "$KS_KEYPASS" > android/keystore.properties
+          else
+            cd android
+            keytool -genkeypair -v -keystore basarang.keystore -storetype PKCS12 \
+              -alias basarang -keyalg RSA -keysize 2048 -validity 9125 \
+              -storepass basarang-ci-dev -keypass basarang-ci-dev \
+              -dname 'CN=Basarang CI Dev, OU=Humas, O=UIN Antasari Banjarmasin, L=Banjarmasin, C=ID' > /dev/null 2>&1
+            printf 'STORE_FILE=basarang.keystore\nSTORE_PASS=basarang-ci-dev\nKEY_ALIAS=basarang\nKEY_PASS=basarang-ci-dev\n' > keystore.properties
+          fi
+
+      - name: Tandai nomor build (versionCode = nomor run)
+        run: |
+          sed -i "s/android:versionCode=\"[0-9][0-9]*\"/android:versionCode=\"${{ github.run_number }}\"/" android/AndroidManifest.xml
+          grep -n 'versionCode\|versionName' android/AndroidManifest.xml
+
+      - name: Build APK
+        run: bash android/build-apk.sh
+
+      - name: Verifikasi APK
+        run: |
+          BT="$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -n1)"
+          APK="$(ls android/out/*.apk)"
+          "$BT/apksigner" verify --print-certs "$APK"
+          "$BT/aapt" dump badging "$APK" | head -6
+
+      - name: Unggah artefak
+        uses: actions/upload-artifact@v4
+        with:
+          name: Basarang-APK
+          path: android/out/*.apk
+          if-no-files-found: error
+
+      - name: Terbitkan unduhan langsung (GitHub Release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: |
+            **Basarang v__VER__** — AI Teleprompter yang mengikuti suara Anda.
+            Teleprompter untuk Humas UIN Antasari Banjarmasin; naskah mengikuti suara pembaca, tanpa batas jumlah kata.
+
+            **Baru di 1.2.0 — FULL OFFLINE:** aplikasi kini berjalan 100% tanpa internet sejak pertama dipasang. Seluruh aplikasi dibundel di dalam APK; akun, proyek, dan naskah tersimpan di perangkat (mode Perangkat). Sinkronisasi ke server versi web bersifat opsional lewat tombol **Sinkron** (Unduh / Unggah — butuh koneksi internet).
+
+            **Cara install (Android 7.0 / Nougat ke atas):**
+            1. Unduh berkas `Basarang-v__VER__.apk` di bawah ini langsung dari HP Android.
+            2. Buka berkasnya (dari notifikasi unduhan atau aplikasi Files); bila diminta, izinkan *instal aplikasi tidak dikenal* untuk peramban/Files Anda.
+            3. Buka aplikasi **Basarang**, lalu buat akun perangkat pada pemakaian pertama — tidak memerlukan internet.
+
+            Mode **Suara** membutuhkan izin mikrofon serta layanan pengenalan suara Google (umumnya perlu koneksi internet; sebagian perangkat memiliki paket bahasa luring). Mode **Timer** selalu tersedia sepenuhnya tanpa internet. Tag `apk` selalu berisi build terbaru.
+        run: |
+          VN="$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' android/AndroidManifest.xml)"
+          NOTES="$(printf '%s' "$RELEASE_NOTES" | sed "s/__VER__/${VN}/g")"
+          APK="$(ls android/out/*.apk)"
+          gh release delete apk --yes --cleanup-tag || true
+          gh release create apk "$APK" \
+            --title "Basarang APK v${VN}" \
+            --notes "$NOTES" \
+            --latest

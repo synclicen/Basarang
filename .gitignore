@@ -4,4 +4,9 @@ node_modules/
 *.log
 dist/
 .DS_Store
+
+# artefak build Android (jangan dikomit)
 android/build/
+android/out/
+android/basarang.keystore
+android/keystore.properties

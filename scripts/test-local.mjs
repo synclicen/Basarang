@@ -347,7 +347,7 @@ console.log('— Aset statis & kesehatan —');
     );
     check(
       'frontend: kartu pakai word_count server & editor fetch on-demand',
-      jsText.includes('Number(s.word_count) || 0') && jsText.includes("api('/scripts/' + s.id)") && jsText.includes('scriptEditor(project, d.script)')
+      jsText.includes('Number(s.word_count) || 0') && jsText.includes("api('/scripts/' + s.id)") && jsText.includes('scriptEditor(project, full)')
     );
     check(
       'skema & auth: kolom word_count + PBKDF2 di bawah batas CPU ganti sandi',
@@ -358,6 +358,35 @@ console.log('— Aset statis & kesehatan —');
   check('favicon tersaji', fav.status === 200);
   const nf = await req(null, 'GET', '/tidak-ada');
   check('jalur asing dialihkan ke /', nf.status === 302 || nf.status === 301);
+}
+
+console.log('— Mode luring (offline) —');
+{
+  const sw = await req(null, 'GET', '/sw.js');
+  const swText = (await sw.res.text()) || '';
+  check(
+    'sw.js tersaji sebagai service worker (shell cache)',
+    sw.status === 200 && (sw.res.headers.get('content-type') || '').includes('javascript') && swText.includes('basarang-shell') && swText.includes("addEventListener('fetch'")
+  );
+  const page2 = await req(null, 'GET', '/');
+  const html2 = page2.text || '';
+  check('index.html mendaftarkan service worker (aktif saat https/localhost)', html2.includes('serviceWorker') && html2.includes('/sw.js'));
+  const js2 = await req(null, 'GET', '/app.js');
+  const a = (await js2.res.text()) || '';
+  const css2 = await req(null, 'GET', '/style.css');
+  const c2 = css2.text || '';
+  check(
+    'app.js: modul luring (draf lokal + antrean sinkron + cache naskah)',
+    a.includes('bsng.queue') && a.includes('Off.enqueue') && a.includes('async drain()') && a.includes('setInterval') && a.includes('bsng.draft.') && a.includes('bsng.script.')
+  );
+  check(
+    'app.js: simpan saat luring → "Tersimpan di perangkat"',
+    a.includes('Tersimpan di perangkat ✓') && a.includes('terkirim otomatis saat online')
+  );
+  check('app.js: pulihkan draf lokal saat editor dibuka lagi', a.includes('Draf lokal dipulihkan'));
+  check('app.js: teleprompter luring memuat cache perangkat', a.includes('Mode luring — memuat naskah versi terakhir'));
+  check('app.js: keluar menghapus semua data luring di perangkat', a.includes('Off.clearAll()'));
+  check('css: banner luring & pil status topbar', c2.includes('.off-note') && c2.includes('.pill-warn'));
 }
 
 console.log('— Setup & autentikasi —');
@@ -689,6 +718,179 @@ console.log('— Statistik & bersih-bersih —');
 
   const notFound = await req('admin', 'GET', '/api/endpoint-tak-ada');
   check('endpoint tak dikenal → 404', notFound.status === 404);
+}
+
+console.log('— Kuota tulis D1 habis (insiden nyata 21 Okt 2026): 503 jelas, baca tetap hidup —');
+{
+  // Aplikasi lain di akun Cloudflare yang sama membakar kuota tulis harian D1
+  // (100 rb baris/hari, level AKUN) → SEMUA tulisan gagal, termasuk pembuatan
+  // sesi login. Basarang harus menjawab 503 db_write_limited dengan pesan pulih
+  // yang jelas (bukan 500 samar) agar klien mengantre & mencoba ulang otomatis.
+  const QUOTA_MSG =
+    "Failed to execute 'run' on 'D1PreparedStatement': Your account has exceeded D1's free tier daily row write limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue.";
+  const quotaStub = {
+    bind() {
+      return this;
+    },
+    async run() {
+      throw new Error(QUOTA_MSG);
+    },
+    async first() {
+      throw new Error(QUOTA_MSG);
+    },
+    async all() {
+      throw new Error(QUOTA_MSG);
+    },
+  };
+  const quotaDb = {
+    prepare(sql) {
+      return /^\s*(select|pragma|explain)\b/i.test(sql) ? db.prepare(sql) : quotaStub;
+    },
+    async batch() {
+      throw new Error(QUOTA_MSG);
+    },
+    async exec(sql) {
+      return db.exec(sql);
+    },
+  };
+  const qEnv = { DB: quotaDb };
+
+  // Login kredensial BENAR saat kuota habis: sesi tak bisa dibuat → 503
+  // (pesan menjelaskan pemulihan, bukan menyalahkan kata sandi pengguna).
+  const r1 = await worker.fetch(
+    new Request(ORIGIN + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'fajrianor', password: 'rahasia-kuat-2026' }),
+    }),
+    qEnv
+  );
+  const d1 = await r1.json();
+  check('kuota habis: login ditolak 503 (bukan 500 samar)', r1.status === 503, 'status=' + r1.status);
+  check(
+    'kuota habis: kode db_write_limited + pesan pulih 07.00 WIB',
+    d1.error === 'db_write_limited' && /07\.00\s*WIB/.test(d1.message || ''),
+    d1.message || ''
+  );
+  check('kuota habis: header Retry-After terpasang', Number(r1.headers.get('retry-after') || 0) >= 60);
+
+  // Endpoint baca tetap hidup — degradasi HANYA pada tulisan.
+  const r2 = await worker.fetch(new Request(ORIGIN + '/api/projects', { headers: { cookie: jarCookies('admin') } }), qEnv);
+  check('kuota habis: endpoint baca tetap 200 (degradasi hanya tulis)', r2.status === 200, 'status=' + r2.status);
+
+  // Klien produksi memperlakukan 503/5xx sebagai gangguan sementara: antrean
+  // sinkron TIDAK dibuang — draf & antrean menunggu server pulih.
+  // (Catatan: helper req tak mengisi .text untuk aset JS — baca res.text() langsung.)
+  const jsQ = await req(null, 'GET', '/app.js');
+  const a = (await jsQ.res.text()) || '';
+  check(
+    'app.js: isTransientErr menganggap 5xx/429/db_write_limited sementara',
+    a.includes('isTransientErr') &&
+      a.includes("e.status === 429 || e.status >= 500 || e.code === 'db_write_limited' || e.code === 'rate_limited'") &&
+      a.includes('if (this.isTransientErr(err)) break;')
+  );
+  check('app.js: doSave mengantre saat server sibuk (hint "server pulih")', a.includes('terkirim otomatis saat server pulih'));
+}
+
+console.log('— Aplikasi Android (APK full offline): marker, token Bearer, CORS —');
+{
+  // ---- Marker statis: mode perangkat (LocalApi) di app.js & index.html ----
+  const jsQ = await req(null, 'GET', '/app.js');
+  const a = (await jsQ.res.text()) || '';
+  const htmlQ = await req(null, 'GET', '/');
+  const html = htmlQ.text || '';
+
+  check(
+    'app.js: mode perangkat aktif di origin APK + escape pengujian localhost',
+    a.includes("location.hostname === 'app.basarang.local'") && a.includes("new URLSearchParams(location.search).get('lokal') === '1'")
+  );
+  check(
+    'app.js: api() mode perangkat dilayani LocalApi (tanpa fetch/jaringan)',
+    a.includes('if (LOCAL) {') && a.includes("return LocalApi.call(opts.method || 'GET', path, opts.body);")
+  );
+  check(
+    'app.js: LocalApi menyediakan setup/login/logout/password perangkat',
+    a.includes("path === '/auth/setup'") && a.includes("path === '/auth/login'") && a.includes("path === '/auth/logout'") && a.includes("path === '/auth/password'")
+  );
+  check(
+    'app.js: akun perangkat di namespace basarang.local.* (clearAll logout hanya menyentuh bsng.*)',
+    a.includes("localStorage.getItem('basarang.local.' + k)") && a.includes("LS.keys('bsng.')")
+  );
+  check(
+    'app.js: IndexedDB perangkat — store projects/scripts/members',
+    a.includes("indexedDB.open('basarang-local', 1)") && a.includes("createObjectStore('projects'") && a.includes("createObjectStore('scripts'") && a.includes("createObjectStore('members'")
+  );
+  check(
+    'app.js: PBKDF2 lokal 15 rb iterasi — format hash identik server',
+    a.includes("'pbkdf2:15000:'") && a.includes("['deriveBits']")
+  );
+  check(
+    'app.js: topbar mode perangkat — pil "Perangkat" + tombol Sinkron opsional',
+    a.includes('id="btn-sync"') && a.includes('>Perangkat</span>')
+  );
+  check('app.js: login perangkat tanpa internet (hint tak menyesatkan)', a.includes('Mode perangkat — masuk tanpa internet'));
+  check(
+    'app.js: Off.init & flush jaringan hanya dijalankan mode web',
+    a.includes('if (!LOCAL) Off.init();') && a.includes('if (!LOCAL && dirty && savedId)')
+  );
+  check(
+    'app.js: sinkronisasi opsional dua arah + fallback origin lokal utk pengujian',
+    a.includes('Unduh dari Server') && a.includes('Unggah ke Server') && a.includes("if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return location.origin;")
+  );
+  check(
+    'index.html: service worker TIDAK didaftarkan di origin APK (aset sudah lokal)',
+    html.includes("location.hostname !== 'app.basarang.local'")
+  );
+
+  // ---- Perilaku server untuk APK: login lintas origin + Bearer + CORS ----
+  const lg = await req(null, 'POST', '/api/auth/login', {
+    body: { username: 'fajrianor', password: 'rahasia-kuat-2026' },
+    origin: 'https://app.basarang.local',
+  });
+  const token = (lg.data && lg.data.data && lg.data.data.token) || '';
+  check('APK: login lintas origin (Origin APK) diterima — guard CSRF dilewati utk APK', lg.status === 200 && !!(lg.data.data.user));
+  check('APK: respons login menyertakan token sesi (klien non-cookie)', /^[0-9a-f]{64}$/.test(token));
+  check(
+    'APK: respons login ber-header CORS utk origin APK',
+    (lg.res.headers.get('access-control-allow-origin') || '') === 'https://app.basarang.local'
+  );
+
+  const bp = await req(null, 'GET', '/api/projects', { headers: { authorization: 'Bearer ' + token } });
+  check('APK: Bearer token menggantikan cookie (GET /projects 200)', bp.status === 200 && Array.isArray(bp.data.data.projects));
+  const badTok = await req(null, 'GET', '/api/projects', { headers: { authorization: 'Bearer ' + 'f'.repeat(64) } });
+  check('APK: Bearer token palsu ditolak 401', badTok.status === 401, 'status=' + badTok.status);
+  const bs = await req(null, 'POST', '/api/projects', {
+    body: { name: 'Proyek via Bearer' },
+    headers: { authorization: 'Bearer ' + token },
+  });
+  check('APK: tulis via Bearer token berhasil (POST /projects 201)', bs.status === 201 && !!bs.data.data.project, 'status=' + bs.status);
+
+  const pre = await worker.fetch(
+    new Request(ORIGIN + '/api/auth/login', {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'https://app.basarang.local',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type, authorization',
+      },
+    }),
+    env
+  );
+  check(
+    'APK: preflight CORS dijawab (204 + allow-origin + metode)',
+    pre.status === 204 && pre.headers.get('access-control-allow-origin') === 'https://app.basarang.local' && (pre.headers.get('access-control-allow-methods') || '').includes('POST')
+  );
+  const pre2 = await worker.fetch(
+    new Request(ORIGIN + '/api/auth/login', {
+      method: 'OPTIONS',
+      headers: { origin: 'https://jahat.example', 'access-control-request-method': 'POST' },
+    }),
+    env
+  );
+  check('APK: preflight origin asing TIDAK mendapat allow-origin', pre2.status === 204 && !pre2.headers.get('access-control-allow-origin'));
+
+  const lgw = await req('webtoko', 'POST', '/api/auth/login', { body: { username: 'fajrianor', password: 'rahasia-kuat-2026' } });
+  check('web: login biasa tetap menyertakan token (kompatibel; klien cookie mengabaikannya)', lgw.status === 200 && /^[0-9a-f]{64}$/.test(((lgw.data || {}).data || {}).token || ''));
 }
 
 console.log('');
