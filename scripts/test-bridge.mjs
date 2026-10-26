@@ -334,6 +334,129 @@ console.log('— Regresi: mode Timer tanpa suara —');
   await sleep(300);
 }
 
+console.log('— Posisi garis panduan: pengaturan + seret langsung —');
+{
+  // Buka ulang prompter (mode suara) — guidePos belum pernah diatur → default 42%.
+  await page.evaluate(() => localStorage.setItem('basarang.prompter', JSON.stringify({ mode: 'voice', fontSize: 1.6 })));
+  await page.evaluate((sid) => { location.hash = '#/prompter/' + sid; }, globalThis.__SID);
+  await page.waitForSelector('#p-play', { timeout: 15000 });
+  const g0 = await $eval(() => {
+    const g = document.getElementById('p-guide').getBoundingClientRect();
+    const r = document.getElementById('p-scroll').getBoundingClientRect();
+    return Math.round(((g.top - r.top) / r.height) * 100);
+  });
+  check('garis panduan default di 42% tinggi layar', g0 === 42, 'pct=' + g0);
+
+  // Slider "Posisi panduan" di panel pengaturan → 60%.
+  await page.evaluate(() => document.getElementById('p-set').click());
+  await page.waitForSelector('#ps-gpos', { timeout: 5000 });
+  await page.evaluate(() => {
+    const r = document.getElementById('ps-gpos');
+    r.value = '60';
+    r.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await sleep(150);
+  const g1 = await $eval(() => {
+    const g = document.getElementById('p-guide').getBoundingClientRect();
+    const r = document.getElementById('p-scroll').getBoundingClientRect();
+    return Math.round(((g.top - r.top) / r.height) * 100);
+  });
+  check('slider pengaturan memindahkan garis ke 60%', g1 === 60, 'pct=' + g1);
+  const saved1 = await page.evaluate(() => JSON.parse(localStorage.getItem('basarang.prompter') || '{}').guidePos);
+  check('posisi panduan tersimpan di pengaturan (guidePos=60)', saved1 === 60, 'saved=' + saved1);
+  await page.evaluate(() => document.getElementById('ps-close').click());
+
+  // Gulir mode suara mengikuti garis baru: klik kata ke-30 → kata mendarat di ~60%.
+  await page.evaluate(() => {
+    const ws = document.querySelectorAll('.p-word');
+    ws[Math.min(30, ws.length - 1)].click();
+  });
+  await sleep(450);
+  const align = await $eval(() => {
+    const ws = document.querySelectorAll('.p-word');
+    const w = ws[Math.min(30, ws.length - 1)].getBoundingClientRect();
+    const r = document.getElementById('p-scroll').getBoundingClientRect();
+    return Math.round(((w.top - r.top) / r.height) * 100);
+  });
+  check('klik kata melandaskan kata tepat di garis panduan 60% (±4%)', Math.abs(align - 60) <= 4, 'align=' + align);
+
+  // Seret garis langsung: pointer di strip grab, tarik 10% tinggi ke bawah.
+  const box = await page.evaluate(() => {
+    const g = document.getElementById('p-guide-grab').getBoundingClientRect();
+    const r = document.getElementById('p-scroll').getBoundingClientRect();
+    return { x: g.left + g.width / 2, y: g.top + g.height / 2, h: r.height };
+  });
+  await page.mouse.move(box.x, box.y);
+  await page.mouse.down();
+  await page.mouse.move(box.x, box.y + box.h * 0.1, { steps: 10 });
+  await page.mouse.up();
+  await sleep(150);
+  const g2 = await $eval(() => {
+    const g = document.getElementById('p-guide').getBoundingClientRect();
+    const r = document.getElementById('p-scroll').getBoundingClientRect();
+    return {
+      pct: Math.round(((g.top - r.top) / r.height) * 100),
+      saved: JSON.parse(localStorage.getItem('basarang.prompter') || '{}').guidePos,
+    };
+  });
+  check('seret garis 10% ke bawah → posisi 70% + tersimpan', g2.pct === 70 && g2.saved === 70, JSON.stringify(g2));
+
+  // Klik singkat pada strip garis TIDAK menelan klik — diteruskan ke kata di bawahnya.
+  // Probe dan klik HARUS di titik yang sama (rect grab live, bukan box lama
+  // sebelum seret — garis sudah pindah ke 70%).
+  const hit = await page.evaluate(() => {
+    const g = document.getElementById('p-guide-grab').getBoundingClientRect();
+    const r = document.getElementById('p-scroll').getBoundingClientRect();
+    const y = g.top + g.height / 2;
+    const grab = document.getElementById('p-guide-grab');
+    for (const fx of [0.5, 0.25, 0.75]) {
+      const x = r.left + r.width * fx;
+      grab.style.pointerEvents = 'none';
+      const el = document.elementFromPoint(x, y);
+      grab.style.pointerEvents = '';
+      const w = el instanceof Element ? el.closest('.p-word') : null;
+      if (w) return { x, y, word: w.textContent, i: Number(w.dataset.i) };
+    }
+    return null;
+  });
+  if (hit) {
+    await page.mouse.click(hit.x, hit.y);
+    await sleep(400);
+    const curInfo = await $eval(() => {
+      const els = document.querySelectorAll('.p-word.cur');
+      return { n: els.length, i: els.length === 1 ? Number(els[0].dataset.i) : -1, txt: els.length ? els[0].textContent : null };
+    });
+    // Semantik klik kata yang sudah ada: jumpTo(i) → blok emas di kata i-1
+    // (i=0 → kata itu sendiri). Yang DIJAMIN: blok emas TUNGGAL + tepat di
+    // slot kata yang diklik (bukan sisa blok kata pertama dari highlight(0)).
+    const wantI = Math.max(0, hit.i - 1);
+    check(
+      'klik singkat pada garis diteruskan ke kata di bawahnya (blok emas tunggal)',
+      curInfo.n === 1 && curInfo.i === wantI,
+      `cur=${curInfo.txt}(${curInfo.i}) n=${curInfo.n} vs want=${wantI} (klik kata ${hit.i}="${hit.word}")`
+    );
+  } else {
+    check('klik singkat pada garis diteruskan ke kata di bawahnya (lewat — tak ada kata di titik uji)', true, 'skip');
+  }
+
+  // Bertahan antar sesi: keluar lalu buka ulang prompter.
+  await page.evaluate(() => document.getElementById('p-exit').click());
+  await sleep(300);
+  await page.evaluate((sid) => { location.hash = '#/prompter/' + sid; }, globalThis.__SID);
+  await page.waitForSelector('#p-play', { timeout: 15000 });
+  const g3 = await $eval(() => {
+    const g = document.getElementById('p-guide').getBoundingClientRect();
+    const r = document.getElementById('p-scroll').getBoundingClientRect();
+    return Math.round(((g.top - r.top) / r.height) * 100);
+  });
+  check('posisi panduan bertahan setelah buka ulang prompter (70%)', g3 === 70, 'pct=' + g3);
+  await page.evaluate(() => document.getElementById('p-exit').click());
+  await sleep(300);
+  // Kembalikan pengaturan prompter persis seperti yang ditinggalkan seksi
+  // "mode Timer" — seksi offline berikutnya mewarisi mode timer (regresi luring).
+  await page.evaluate(() => localStorage.setItem('basarang.prompter', JSON.stringify({ mode: 'timer', fontSize: 1.6, wpm: 200, speed: 2 })));
+}
+
 console.log('— Mode luring: offline penuh di Chromium —');
 {
   // Online dulu: buka halaman proyek agar ikut tersimpan di perangkat.

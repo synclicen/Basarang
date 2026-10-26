@@ -518,8 +518,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .p-para { margin: 0 0 0.65em; }
 
 /* Panduan baris baca — HARUS anak langsung .prompter (di luar .p-scroll)
-   agar tetap diam di 42% layar saat naskah digulir. Jangan dimasukkan ke
-   .p-scroll: elemen absolut di dalam scroll container ikut tergulir. */
+   agar tetap diam di posisi layar saat naskah digulir. Jangan dimasukkan ke
+   .p-scroll: elemen absolut di dalam scroll container ikut tergulir.
+   Posisi default 42% tinggi; pengguna bisa menggeser (slider "Posisi
+   panduan" atau seret garisnya langsung) — prompter.js menimpa top via
+   style sesuai settings.guidePos (10–90%). */
 .p-guide {
   position: absolute; left: 0; right: 0; top: 42%;
   height: 0; z-index: 2; pointer-events: none;
@@ -528,6 +531,24 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); min
 .p-guide .tri-l, .p-guide .tri-r { position: absolute; top: -5px; width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; }
 .p-guide .tri-l { left: clamp(10px, 6vw, 70px); border-left: 9px solid var(--gold-2); }
 .p-guide .tri-r { right: clamp(10px, 6vw, 70px); border-right: 9px solid var(--gold-2); }
+/* Strip seret: area jangkauan tak terlihat di sekitar garis (32px) agar mudah
+   dipegang jari/kursor. pointer-events DINYALAKAN di anak (induknya none) —
+   klik singkat tanpa gerakan diteruskan ke kata di bawahnya oleh prompter.js. */
+.p-guide .grab {
+  position: absolute; left: clamp(10px, 6vw, 70px); right: clamp(10px, 6vw, 70px);
+  top: -16px; height: 32px; pointer-events: auto; cursor: ns-resize; touch-action: none;
+}
+.p-guide .grab:hover ~ .line, .p-guide.dragging .line { box-shadow: 0 0 18px rgba(232, 181, 77, 0.95); }
+.p-guide .grab:hover ~ .tri-l, .p-guide .grab:hover ~ .tri-r, .p-guide.dragging .tri-l, .p-guide.dragging .tri-r { filter: drop-shadow(0 0 6px rgba(232, 181, 77, 0.9)); }
+/* Badge persentase — muncul hanya saat garis sedang diseret. */
+.p-guide .pos-badge {
+  position: absolute; right: calc(clamp(10px, 6vw, 70px) + 30px); top: -38px;
+  padding: 3px 10px; border-radius: 999px; background: #07040Fee;
+  border: 1px solid var(--gold-2); color: var(--gold-2);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
+  opacity: 0; transition: opacity 0.15s; pointer-events: none; white-space: nowrap;
+}
+.p-guide.dragging .pos-badge { opacity: 1; }
 
 /* Fade tepi atas/bawah */
 .p-fade { position: absolute; left: 0; right: 0; height: 16dvh; z-index: 1; pointer-events: none; opacity: var(--fade-op, 0.95); }

@@ -271,6 +271,32 @@ console.log('— Aset statis & kesehatan —');
         fnPlay.includes("if (S.mode === 'voice') scrollToWord")
       );
     }
+    // Regresi posisi garis panduan: dulunya hard-coded 42% (terlalu ke atas
+    // menurut laporan pengguna 26 Okt 2026) — kini ada pengaturan "Posisi
+    // panduan" (guidePos 10–90%) dan garis emas bisa diseret langsung.
+    {
+      const fnScroll = t.slice(t.indexOf('function scrollToWord'), t.indexOf('function animateScrollTo'));
+      const fnGuide = t.slice(t.indexOf('function wordAtGuide'), t.indexOf('function resyncFromView'));
+      check(
+        'pengaturan posisi garis panduan (guidePos, default 42%)',
+        t.includes('guidePos: 42') && t.includes('ps-gpos') && t.includes('function guideRatio')
+      );
+      check(
+        'gulir & wordAtGuide mengikuti garis panduan (bukan hard-coded 42%)',
+        fnScroll.includes('guideRatio()') && fnGuide.includes('guideRatio()') && !fnScroll.includes('0.42') && !fnGuide.includes('0.42')
+      );
+      check(
+        'garis emas bisa diseret (strip grab + klik diteruskan ke kata)',
+        t.includes('p-guide-grab') && t.includes('elementFromPoint') && (css.text || '').includes('.p-guide .grab')
+      );
+    }
+    // Regresi blok emas ganda: highlight(0) saat buka menandai words[0] tapi
+    // curIdx tetap -1 → lompatan pertama (prev<0) tak pernah melepas .cur kata
+    // pertama → DUA blok emas sekaligus. Kini elemen bertanda dilacak di curEl.
+    check(
+      'blok emas tunggal (.cur dilepas dari elemen terlacak curEl, bukan tebakan indeks)',
+      t.includes('let curEl = null') && t.includes('curEl = cur.el;') && t.includes('if (curEl) curEl.classList.remove')
+    );
     check(
       'tombol HUD bawah: blok emas + ulang dari awal',
       t.includes('id="p-wordblock"') && t.includes('id="p-restart"') && t.includes('function restartFromTop') && t.includes('function toggleWordBlock') && t.includes('function syncWordBlockButtons')
@@ -895,8 +921,8 @@ console.log('— Aplikasi Android (APK full offline): marker, token Bearer, CORS
   const swQ = await req(null, 'GET', '/sw.js');
   const swTxt = (swQ.res && (await swQ.res.text())) || '';
   check(
-    'sw.js: license.js masuk shell cache + versi dinaikkan (v1.3.0)',
-    swTxt.includes("'/license.js'") && swTxt.includes("'v1.3.0'")
+    'sw.js: license.js masuk shell cache + versi dinaikkan (v1.3.1)',
+    swTxt.includes("'/license.js'") && swTxt.includes("'v1.3.1'")
   );
   const ROOT = '.';
   const genSrc = readFileSync(join(ROOT, 'tools/generate-license.mjs'), 'utf8');

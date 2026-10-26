@@ -8,7 +8,7 @@
 //     ditangani app.js lewat localStorage (draf + antrean sinkron + cache naskah),
 //     bukan lewat cache service worker.
 // Naikkan VERSION saat rilis agar cache shell lama dibuang dan diganti.
-const VERSION = 'v1.3.0';
+const VERSION = 'v1.3.1';
 const SHELL_CACHE = 'basarang-shell-' + VERSION;
 const SHELL_FILES = ['/', '/style.css', '/app.js', '/align.js', '/license.js', '/prompter.js', '/favicon.svg'];
 

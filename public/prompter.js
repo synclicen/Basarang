@@ -19,6 +19,7 @@
     mirrorX: false,
     mirrorY: false,
     guide: true,
+    guidePos: 42, // posisi vertikal garis panduan (% tinggi layar, 10–90) — bisa digeser via pengaturan / diseret langsung
     wordBlock: true, // blok kata emas pada kata aktif (mode suara) — bisa disembunyikan bila mengganggu pembacaan
     edgeFade: 0.95, // opasitas efek memudar di tepi atas/bawah (0 = mati, 1 = pekat) — harus kelipatan 0.05 (step slider)
     align: 'left', // rata teks naskah: 'left' | 'center' | 'right' | 'justify'
@@ -153,7 +154,7 @@
       <div class="p-scroll" id="p-scroll">
         <div class="p-content" id="p-content"></div>
       </div>
-      <div class="p-guide" id="p-guide"><span class="line"></span><span class="tri-l"></span><span class="tri-r"></span></div>
+      <div class="p-guide" id="p-guide"><span class="grab" id="p-guide-grab" title="Geser garis panduan naik / turun"></span><span class="line"></span><span class="tri-l"></span><span class="tri-r"></span><span class="pos-badge" id="p-guide-pos"></span></div>
       <div class="p-fade top"></div>
       <div class="p-fade bot"></div>
       <div class="p-hud-top">
@@ -218,6 +219,69 @@
     document.body.appendChild(root);
     document.body.style.overflow = 'hidden';
 
+    // ---------- Geser garis panduan (seret langsung) ----------
+    // Garis emas bisa ditarik naik/turun: pegang garis lalu geser (pointer).
+    // Klik singkat TANPA gerakan diteruskan ke kata di bawahnya — strip seret
+    // tidak boleh menelan klik-kata (lompat ke kata). Posisi dibatasi 10–90%
+    // tinggi layar; tercatat di settings.guidePos dan bertahan antar sesi.
+    (() => {
+      const grab = $('p-guide-grab');
+      const badge = $('p-guide-pos');
+      let dragging = false;
+      let startY = 0;
+      let startPos = 42;
+      let moved = false;
+      const setPos = (pct, save) => {
+        settings.guidePos = Math.min(90, Math.max(10, Math.round(pct)));
+        elGuide.style.top = settings.guidePos + '%';
+        badge.textContent = settings.guidePos + '%';
+        if (save) {
+          saveSettings(settings);
+          // panel pengaturan sedang terbuka? sinkronkan slidernya
+          const r = root.querySelector('#ps-gpos');
+          if (r) { r.value = String(settings.guidePos); r.title = settings.guidePos + '%'; }
+          const v = root.querySelector('#ps-gpos-v');
+          if (v) v.textContent = settings.guidePos + '%';
+        }
+      };
+      grab.addEventListener('pointerdown', (e) => {
+        dragging = true; moved = false;
+        startY = e.clientY;
+        startPos = Number(settings.guidePos) || 42;
+        try { grab.setPointerCapture(e.pointerId); } catch { /* abaikan */ }
+        elGuide.classList.add('dragging');
+        e.preventDefault(); // cegah gulir/selection saat menyeret di layar sentuh
+      });
+      grab.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        const h = elScroll.clientHeight || 1;
+        if (Math.abs(e.clientY - startY) > 4) moved = true;
+        const dPct = ((e.clientY - startY) / h) * 100;
+        setPos(startPos + dPct, false);
+        // Mode suara: kata aktif ikut menempel ke garis yang baru (instan,
+        // tanpa animasi — agar tidak "berkelahi" dengan gerakan seret).
+        if (S.mode === 'voice') scrollToWord(displayPos(S.provisionalPos), false);
+      });
+      const finishDrag = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        elGuide.classList.remove('dragging');
+        if (e && e.pointerId != null) { try { grab.releasePointerCapture(e.pointerId); } catch { /* abaikan */ } }
+        if (!moved && e) {
+          // klik biasa, bukan seret → teruskan ke kata di bawah strip
+          grab.style.pointerEvents = 'none';
+          const el = document.elementFromPoint(e.clientX, e.clientY);
+          grab.style.pointerEvents = '';
+          const w = el instanceof Element ? el.closest('.p-word') : null;
+          if (w) w.click();
+          return;
+        }
+        setPos(settings.guidePos, true);
+      };
+      grab.addEventListener('pointerup', finishDrag);
+      grab.addEventListener('pointercancel', () => { if (dragging) setPos(settings.guidePos, true); finishDrag(null); });
+    })();
+
     // Delegasi klik kata: SATU listener di wadah untuk semua kata — naskah panjang
     // (belasan ribu kata) tidak lagi memasang listener per kata (boros memori & waktu).
     elContent.addEventListener('click', (e) => {
@@ -252,6 +316,14 @@
       S.norms = words.map((w) => w.norm); // cache — dihitung sekali, bukan tiap event suara
     }
 
+    // Rasio vertikal garis panduan terhadap tinggi area gulir (10%–90%).
+    // Dipakai semua tempat yang dulunya hard-coded 42% — kini posisi garis
+    // bisa digeser pengguna (slider pengaturan / seret garis langsung).
+    function guideRatio() {
+      const p = Number(settings.guidePos);
+      return Math.min(0.9, Math.max(0.1, (isFinite(p) ? p : 42) / 100));
+    }
+
     function applyTypography() {
       elContent.style.fontSize = `calc(clamp(26px, 5.4vw, 56px) * ${settings.fontSize})`;
       elContent.style.lineHeight = String(settings.lineHeight);
@@ -261,16 +333,23 @@
       root.className = 'prompter theme-' + settings.theme + (S.hudHidden ? ' p-hud-hidden' : '') + (settings.wordBlock === false ? ' no-wordblock' : '');
       root.style.setProperty('--fade-op', String(settings.edgeFade == null ? 0.95 : settings.edgeFade));
       elGuide.classList.toggle('hidden', !settings.guide);
+      elGuide.style.top = (guideRatio() * 100) + '%';
       invalidateMetrics();
     }
 
     // ---------- Sorotan & progres ----------
 
     let curIdx = -1;
+    // Elemen kata yang BENAR-BENAR membawa .cur. curIdx saja tak cukup:
+    // highlight(0) saat buka menandai words[0] dengan curIdx tetap -1, sehingga
+    // lompatan pertama (jalur prev<0) tak pernah melepas blok emas kata
+    // pertama — DUA blok emas sekaligus di DOM (regresi ditemukan 26 Okt 2026).
+    let curEl = null;
     // Efek karaoke (kata terlewati diredupkan + blok emas) hanya bermakna di
     // mode suara — di sana tanda "sudah diucapkan". Mode gulir = pengguna
     // membaca sendiri; kata yang tergulir lewat TIDAK boleh diredupkan.
     function clearWordMarks() {
+      curEl = null;
       for (const w of S.words) {
         if (w.el.classList.contains('done') || w.el.classList.contains('cur')) {
           w.el.classList.remove('done');
@@ -288,7 +367,8 @@
         elProgress.style.width = Math.min(100, (pos / Math.max(1, S.words.length)) * 100) + '%';
         return;
       }
-      if (S.words[prev]) S.words[prev].el.classList.remove('cur');
+      if (curEl) curEl.classList.remove('cur'); // lepas blok emas dari elemen yang benar-benar bertanda
+      curEl = null;
       if (prev < 0) {
         for (let i = 0; i < pos; i++) S.words[i] && S.words[i].el.classList.add('done');
       } else if (pos > prev + 1) {
@@ -301,6 +381,7 @@
       if (cur) {
         cur.el.classList.add('cur');
         cur.el.classList.remove('done');
+        curEl = cur.el;
       }
       elPct.textContent = Math.round((pos / Math.max(1, S.words.length)) * 100) + '%';
       elProgress.style.width = Math.min(100, (pos / Math.max(1, S.words.length)) * 100) + '%';
@@ -309,8 +390,16 @@
     function scrollToWord(pos, smooth = true) {
       const w = S.words[Math.max(0, Math.min(pos - 1, S.words.length - 1))];
       if (!w) return;
-      const target = Math.max(0, w.el.offsetTop - elScroll.clientHeight * 0.42);
+      const target = Math.max(0, w.el.offsetTop - elScroll.clientHeight * guideRatio());
       animateScrollTo(target, smooth);
+    }
+
+    // Setelah posisi garis panduan digeser, landaskan ulang kata aktif ke garis
+    // yang baru (mode suara) agar blok emas tetap di titik baca. Mode timer tidak
+    // digeser: gulirannya proporsional terhadap progres, garis hanya penanda visual.
+    function realignToGuide() {
+      if (S.mode !== 'voice') return;
+      scrollToWord(displayPos(S.provisionalPos), false);
     }
 
     function animateScrollTo(target, smooth) {
@@ -895,6 +984,10 @@
         <div class="p-set-row"><span class="lbl">Panduan baris</span>
           <button class="p-ctrl ${settings.guide ? 'on' : ''}" id="ps-guide" style="min-width:60px;height:34px">${settings.guide ? 'Aktif' : 'Mati'}</button>
         </div>
+        <div class="p-set-row"><span class="lbl">Posisi panduan</span>
+          <span class="row" style="gap:8px"><input type="range" id="ps-gpos" min="10" max="90" step="1" value="${Math.round(guideRatio() * 100)}" title="${Math.round(guideRatio() * 100)}% dari atas layar">
+          <b id="ps-gpos-v" style="min-width:52px;font-size:var(--fs-xs)">${Math.round(guideRatio() * 100)}%</b></span>
+        </div>
         <div class="p-set-row"><span class="lbl">Blok kata emas (suara)</span>
           <button class="p-ctrl ${settings.wordBlock ? 'on' : ''}" id="ps-wordblock" style="min-width:60px;height:34px">${settings.wordBlock ? 'Aktif' : 'Mati'}</button>
         </div>
@@ -904,7 +997,7 @@
         <div class="p-set-row"><span class="lbl">Cermin vertikal</span>
           <button class="p-ctrl ${settings.mirrorY ? 'on' : ''}" id="ps-my" style="min-width:60px;height:34px">${settings.mirrorY ? 'Aktif' : 'Mati'}</button>
         </div>
-        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · B blok kata · T ganti mode gulir · A rata teks · R sinkron ulang · Home ulang dari awal · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat.</p>`;
+        <p class="hint" style="margin:10px 0 0">Pintasan: Spasi mulai/jeda · +/- ukuran teks · M cermin · B blok kata · T ganti mode gulir · A rata teks · R sinkron ulang · Home ulang dari awal · S pengaturan · F layar penuh · Esc keluar · klik kata untuk melompat · garis panduan bisa diseret naik/turun langsung.</p>`;
 
       elSettings.querySelectorAll('[data-mode]').forEach((b) =>
         b.addEventListener('click', () => { setMode(b.dataset.mode); })
@@ -950,6 +1043,10 @@
       bindRange('ps-font', 'ps-font-v', 'fontSize', (x) => '×' + x.toFixed(2), applyTypography);
       bindRange('ps-lh', 'ps-lh-v', 'lineHeight', (x) => x.toFixed(2), applyTypography);
       bindRange('ps-fade', 'ps-fade-v', 'edgeFade', (x) => Math.round(x * 100) + '%', applyTypography);
+      bindRange('ps-gpos', 'ps-gpos-v', 'guidePos', (x) => x + '%', () => {
+        applyTypography();
+        realignToGuide(); // kata aktif ikut menempel ke garis yang baru (mode suara)
+      });
       elSettings.querySelector('#ps-theme').addEventListener('change', (e) => {
         settings.theme = e.target.value;
         saveSettings(settings);
@@ -995,10 +1092,11 @@
       hudWake();
     }
 
-    // Kata terdekat dengan garis panduan (42% tinggi) — dipakai sinkron ulang
-    // (R) dan saat berganti mode, agar posisi mengikuti apa yang sedang terlihat.
+    // Kata terdekat dengan garis panduan (posisi bisa digeser, default 42% tinggi)
+    // — dipakai sinkron ulang (R) dan saat berganti mode, agar posisi mengikuti
+    // apa yang sedang terlihat.
     function wordAtGuide() {
-      const ref = elScroll.scrollTop + elScroll.clientHeight * 0.42;
+      const ref = elScroll.scrollTop + elScroll.clientHeight * guideRatio();
       let lo = 0;
       let hi = S.words.length - 1;
       let best = 0;
